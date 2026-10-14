@@ -107,27 +107,40 @@ const _shirts = [
 ];
 const _pants = [Color(0xFF37474F), Color(0xFF3949AB), Color(0xFF5D4037), Color(0xFF455A64)];
 
+const _skirts = [Color(0xFFF48FB1), Color(0xFF9FA8DA), Color(0xFFFFCC80), Color(0xFFA5D6A7), Color(0xFFCE93D8)];
+const _bows = [Color(0xFFE91E63), Color(0xFFFF7043), Color(0xFF7E57C2), Color(0xFF29B6F6)];
+
 class Look {
-  final Color skin, hair, shirt, pants;
-  final int hairStyle; // 0 ngắn, 1 búi, 2 dài
-  const Look(this.skin, this.hair, this.shirt, this.pants, this.hairStyle);
+  final Color skin, hair, shirt, pants; // nữ: pants = màu váy
+  final int hairStyle; // 0 ngắn, 1 búi, 2 dài, 3 dài + mái (nữ chính), 4 vuốt mái (nam chính)
+  final bool female;
+  final Color? bow; // nơ cài tóc
+  const Look(this.skin, this.hair, this.shirt, this.pants, this.hairStyle, {this.female = false, this.bow});
   factory Look.seed(int seed) {
     final r = Random(seed);
-    return Look(
-      _skins[r.nextInt(_skins.length)],
-      _hairs[r.nextInt(_hairs.length)],
-      _shirts[r.nextInt(_shirts.length)],
-      _pants[r.nextInt(_pants.length)],
-      r.nextInt(3),
-    );
+    final female = r.nextBool();
+    final skin = _skins[r.nextInt(_skins.length)];
+    final hair = _hairs[r.nextInt(_hairs.length)];
+    final shirt = _shirts[r.nextInt(_shirts.length)];
+    if (female) {
+      return Look(skin, hair, shirt, _skirts[r.nextInt(_skirts.length)], 1 + r.nextInt(3),
+          female: true, bow: r.nextInt(3) == 0 ? _bows[r.nextInt(_bows.length)] : null);
+    }
+    return Look(skin, hair, shirt, _pants[r.nextInt(_pants.length)], r.nextInt(3) == 0 ? 4 : 0);
   }
 }
 
-const waiterLook = Look(Color(0xFFFFDBB4), Color(0xFF3E2723), Color(0xFF263238), Color(0xFF212121), 0);
-const chefLook = Look(Color(0xFFF1C27D), Color(0xFF4E342E), Color(0xFFFFFFFF), Color(0xFF37474F), 0);
+/// Ngọc Anh – cô phục vụ: tóc đen dài có mái, nơ hồng, áo trắng, váy hồng
+const ngocAnhLook = Look(Color(0xFFFFE3D3), Color(0xFF2A1A16), Color(0xFFFFFFFF), Color(0xFFF06292), 3, female: true, bow: Color(0xFFE91E63));
+/// Nguyên – anh đầu bếp: tóc đen vuốt, đồng phục bếp trắng
+const nguyenLook = Look(Color(0xFFF3C9A3), Color(0xFF1B1B1B), Color(0xFFFFFFFF), Color(0xFF37474F), 4);
+const waiterLook = ngocAnhLook;
+const chefLook = nguyenLook;
+const kWaiterName = 'Ngọc Anh';
+const kChefName = 'Nguyên';
 
 /// Vẽ một người kiểu chibi. [p] là điểm chân (hoặc hông nếu [sitting]), [s] ≈ chiều cao.
-/// mood: 0 vui, 1 bình thường, 2 tức giận. role: '', 'waiter', 'chef'.
+/// mood: 0 vui, 1 bình thường, 2 tức giận. role: '', 'waiter', 'chef'. [name]: bảng tên trên đầu.
 void drawPerson(
   Canvas c,
   Offset p,
@@ -144,8 +157,10 @@ void drawPerson(
   bool chew = false,
   String? carry,
   double stir = -1,
+  String? name,
 }) {
   final u = s / 10;
+  final fem = lk.female;
   final fill = Paint()..isAntiAlias = true;
   final outline = Paint()
     ..style = PaintingStyle.stroke
@@ -172,18 +187,28 @@ void drawPerson(
       c.save();
       c.translate(side * 0.8 * u, hip);
       c.rotate(side * sw * 0.5);
-      fill.color = lk.pants;
-      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-0.6 * u, -0.2 * u, 1.2 * u, 3.0 * u), Radius.circular(0.6 * u)), fill);
-      fill.color = const Color(0xFF3E2723);
-      c.drawOval(Rect.fromLTWH(-0.6 * u, 2.4 * u, 1.7 * u, 0.8 * u), fill);
+      fill.color = fem ? lk.skin : lk.pants;
+      final lw = fem ? 0.95 * u : 1.2 * u;
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-lw / 2, -0.2 * u, lw, 3.0 * u), Radius.circular(lw / 2)), fill);
+      fill.color = fem ? (lk.bow ?? const Color(0xFF8D4E5A)) : const Color(0xFF3E2723);
+      c.drawOval(Rect.fromLTWH(-0.6 * u, 2.4 * u, 1.6 * u, 0.8 * u), fill);
       c.restore();
     }
   }
 
-  // --- Thân ---
+  // --- Tóc dài phía sau (vẽ trước thân) ---
   final top = hip - 3.6 * u;
+  final hy = top - 1.6 * u;
+  if (fem && (lk.hairStyle == 2 || lk.hairStyle == 3) && role != 'chef') {
+    fill.color = lk.hair;
+    final len = lk.hairStyle == 3 ? 4.6 * u : 3.6 * u;
+    c.drawRRect(RRect.fromLTRBAndCorners(-2.15 * u, hy - 1.2 * u, 2.15 * u, hy + len,
+        topLeft: Radius.circular(2.0 * u), topRight: Radius.circular(2.0 * u), bottomLeft: Radius.circular(0.9 * u), bottomRight: Radius.circular(0.9 * u)), fill);
+  }
+
+  // --- Thân ---
   final body = RRect.fromLTRBAndCorners(
-    -2 * u, top, 2 * u, hip + 0.4 * u,
+    (fem ? -1.75 : -2.0) * u, top, (fem ? 1.75 : 2.0) * u, hip + 0.4 * u,
     topLeft: Radius.circular(1.5 * u),
     topRight: Radius.circular(1.5 * u),
     bottomLeft: Radius.circular(0.6 * u),
@@ -193,26 +218,65 @@ void drawPerson(
   c.drawRRect(body, fill);
   c.drawRRect(body, outline);
 
+  // Váy (nữ)
+  if (fem) {
+    final sk = Path()
+      ..moveTo(-1.8 * u, hip - 0.9 * u)
+      ..lineTo(1.8 * u, hip - 0.9 * u)
+      ..lineTo(2.7 * u, hip + (sitting ? 0.6 : 1.5) * u)
+      ..quadraticBezierTo(0, hip + (sitting ? 1.0 : 1.9) * u, -2.7 * u, hip + (sitting ? 0.6 : 1.5) * u)
+      ..close();
+    fill.color = lk.pants;
+    c.drawPath(sk, fill);
+    c.drawPath(sk, outline);
+    c.drawLine(Offset(-2.4 * u, hip + 1.1 * u), Offset(2.4 * u, hip + 1.1 * u), Paint()
+      ..color = _a(Colors.white, 0.6)
+      ..strokeWidth = max(1.0, u * 0.2));
+  }
+
   if (role == 'waiter') {
-    fill.color = Colors.white;
-    c.drawPath(Path()
-      ..moveTo(-0.9 * u, top + 0.2 * u)
-      ..lineTo(0.9 * u, top + 0.2 * u)
-      ..lineTo(0, top + 2.6 * u)
-      ..close(), fill);
-    fill.color = const Color(0xFFD32F2F);
-    c.drawPath(Path()
-      ..moveTo(0, top + 0.6 * u)
-      ..lineTo(-0.8 * u, top + 0.15 * u)
-      ..lineTo(-0.8 * u, top + 1.05 * u)
-      ..close(), fill);
-    c.drawPath(Path()
-      ..moveTo(0, top + 0.6 * u)
-      ..lineTo(0.8 * u, top + 0.15 * u)
-      ..lineTo(0.8 * u, top + 1.05 * u)
-      ..close(), fill);
-    fill.color = Colors.white;
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(-1.7 * u, hip - 1.4 * u, 1.7 * u, hip + 1.6 * u), Radius.circular(0.3 * u)), fill);
+    if (fem) {
+      // Tạp dề viền hồng + nơ cổ áo
+      final ap = RRect.fromRectAndRadius(Rect.fromLTRB(-1.3 * u, hip - 1.1 * u, 1.3 * u, hip + 1.3 * u), Radius.circular(0.5 * u));
+      fill.color = Colors.white;
+      c.drawRRect(ap, fill);
+      c.drawRRect(ap, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.0, u * 0.22)
+        ..color = const Color(0xFFF8BBD0));
+      fill.color = lk.bow ?? const Color(0xFFE91E63);
+      c.drawPath(Path()
+        ..moveTo(0, top + 0.5 * u)
+        ..lineTo(-0.85 * u, top + 0.05 * u)
+        ..lineTo(-0.85 * u, top + 0.95 * u)
+        ..close(), fill);
+      c.drawPath(Path()
+        ..moveTo(0, top + 0.5 * u)
+        ..lineTo(0.85 * u, top + 0.05 * u)
+        ..lineTo(0.85 * u, top + 0.95 * u)
+        ..close(), fill);
+      c.drawCircle(Offset(0, top + 0.5 * u), 0.25 * u, fill);
+    } else {
+      fill.color = Colors.white;
+      c.drawPath(Path()
+        ..moveTo(-0.9 * u, top + 0.2 * u)
+        ..lineTo(0.9 * u, top + 0.2 * u)
+        ..lineTo(0, top + 2.6 * u)
+        ..close(), fill);
+      fill.color = const Color(0xFFD32F2F);
+      c.drawPath(Path()
+        ..moveTo(0, top + 0.6 * u)
+        ..lineTo(-0.8 * u, top + 0.15 * u)
+        ..lineTo(-0.8 * u, top + 1.05 * u)
+        ..close(), fill);
+      c.drawPath(Path()
+        ..moveTo(0, top + 0.6 * u)
+        ..lineTo(0.8 * u, top + 0.15 * u)
+        ..lineTo(0.8 * u, top + 1.05 * u)
+        ..close(), fill);
+      fill.color = Colors.white;
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(-1.7 * u, hip - 1.4 * u, 1.7 * u, hip + 1.6 * u), Radius.circular(0.3 * u)), fill);
+    }
   } else if (role == 'chef') {
     fill.color = const Color(0xFFB0BEC5);
     for (final yy in const [1.2, 2.2, 3.0]) {
@@ -236,20 +300,21 @@ void drawPerson(
       if (stir >= 0) a = -1.0 + 0.35 * sin(stir);
     }
     c.save();
-    c.translate(side * 1.75 * u, top + 0.9 * u);
+    c.translate(side * (fem ? 1.55 : 1.75) * u, top + 0.9 * u);
     c.rotate(a);
     fill.color = lk.shirt;
-    final arm = RRect.fromRectAndRadius(Rect.fromLTWH(-0.55 * u, -0.3 * u, 1.1 * u, 3.0 * u), Radius.circular(0.55 * u));
+    final aw = fem ? 0.95 * u : 1.1 * u;
+    final arm = RRect.fromRectAndRadius(Rect.fromLTWH(-aw / 2, -0.3 * u, aw, 3.0 * u), Radius.circular(aw / 2));
     c.drawRRect(arm, fill);
     c.drawRRect(arm, outline);
     fill.color = lk.skin;
-    c.drawCircle(Offset(0, 2.9 * u), 0.6 * u, fill);
+    c.drawCircle(Offset(0, 2.9 * u), 0.55 * u, fill);
     c.restore();
   }
 
   // --- Khay món ---
   if (carry != null) {
-    final hand = Offset(1.75 * u + 2.83 * u, top + 0.9 * u + 0.63 * u);
+    final hand = Offset((fem ? 1.55 : 1.75) * u + 2.83 * u, top + 0.9 * u + 0.63 * u);
     fill.color = const Color(0xFFCFD8DC);
     c.drawOval(Rect.fromCenter(center: hand + Offset(0, -0.4 * u), width: 3.8 * u, height: 0.9 * u), fill);
     c.drawOval(Rect.fromCenter(center: hand + Offset(0, -0.4 * u), width: 3.8 * u, height: 0.9 * u), outline);
@@ -257,58 +322,128 @@ void drawPerson(
   }
 
   // --- Đầu ---
-  final hy = top - 1.6 * u;
+  final hr = 1.8 * u; // bán kính đầu (to một chút cho dễ thương)
   fill.color = lk.skin;
-  c.drawRect(Rect.fromLTWH(-0.5 * u, top - 0.6 * u, u, 0.8 * u), fill);
-  if (lk.hairStyle == 2) {
-    fill.color = lk.hair;
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-2.0 * u, hy - 1.2 * u, 4.0 * u, 3.4 * u), Radius.circular(1.2 * u)), fill);
-  }
-  fill.color = lk.skin;
-  c.drawCircle(Offset(0, hy), 1.75 * u, fill);
-  c.drawCircle(Offset(0, hy), 1.75 * u, outline);
+  c.drawRect(Rect.fromLTWH(-0.45 * u, top - 0.6 * u, 0.9 * u, 0.8 * u), fill);
+  c.drawCircle(Offset(0, hy), hr, fill);
+  c.drawCircle(Offset(0, hy), hr, outline);
+
+  // Tóc phía trước
+  fill.color = lk.hair;
   if (role != 'chef') {
-    fill.color = lk.hair;
-    c.drawArc(Rect.fromCircle(center: Offset(0, hy - 0.1 * u), radius: 1.85 * u), pi, pi, true, fill);
-    if (lk.hairStyle == 1) c.drawCircle(Offset(0, hy - 2.0 * u), 0.8 * u, fill);
+    c.drawArc(Rect.fromCircle(center: Offset(0, hy - 0.1 * u), radius: hr + 0.12 * u), pi, pi, true, fill);
+    if (fem) {
+      // mái thưa + tóc mai hai bên
+      for (final x in const [-1.15, -0.4, 0.4, 1.15]) {
+        c.drawCircle(Offset(x * u, hy - 0.55 * u), 0.55 * u, fill);
+      }
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-2.0 * u, hy - 0.8 * u, 0.6 * u, 2.6 * u), Radius.circular(0.3 * u)), fill);
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(1.4 * u, hy - 0.8 * u, 0.6 * u, 2.6 * u), Radius.circular(0.3 * u)), fill);
+      if (lk.hairStyle == 1) c.drawCircle(Offset(0, hy - 2.1 * u), 0.85 * u, fill);
+    } else if (lk.hairStyle == 4) {
+      // tóc vuốt mái
+      c.drawPath(Path()
+        ..moveTo(-1.9 * u, hy - 0.3 * u)
+        ..quadraticBezierTo(-1.2 * u, hy - 2.9 * u, 1.4 * u, hy - 2.4 * u)
+        ..quadraticBezierTo(2.2 * u, hy - 1.6 * u, 1.9 * u, hy - 0.5 * u)
+        ..quadraticBezierTo(0.6 * u, hy - 1.6 * u, -1.9 * u, hy - 0.3 * u)
+        ..close(), fill);
+    }
+  } else {
+    // đội mũ bếp: chỉ thấy tóc mai
+    c.drawRect(Rect.fromLTWH(-1.75 * u, hy - 1.1 * u, 0.45 * u, 1.2 * u), fill);
+    c.drawRect(Rect.fromLTWH(1.3 * u, hy - 1.1 * u, 0.45 * u, 1.2 * u), fill);
+  }
+  // Nơ cài tóc
+  if (lk.bow != null && role != 'chef') {
+    fill.color = lk.bow!;
+    final bc = Offset(1.25 * u, hy - 1.55 * u);
+    c.drawPath(Path()
+      ..moveTo(bc.dx, bc.dy)
+      ..lineTo(bc.dx - 0.9 * u, bc.dy - 0.55 * u)
+      ..lineTo(bc.dx - 0.9 * u, bc.dy + 0.55 * u)
+      ..close(), fill);
+    c.drawPath(Path()
+      ..moveTo(bc.dx, bc.dy)
+      ..lineTo(bc.dx + 0.9 * u, bc.dy - 0.55 * u)
+      ..lineTo(bc.dx + 0.9 * u, bc.dy + 0.55 * u)
+      ..close(), fill);
+    c.drawCircle(bc, 0.28 * u, Paint()..color = _lt(lk.bow!, 0.3));
   }
 
-  // Mặt
-  fill.color = const Color(0xFF2B2B2B);
-  c.drawCircle(Offset(-0.65 * u, hy + 0.3 * u), 0.22 * u, fill);
-  c.drawCircle(Offset(0.65 * u, hy + 0.3 * u), 0.22 * u, fill);
-  if (mood == 0) {
-    final cheek = Paint()..color = const Color(0x55FF6F61);
-    c.drawCircle(Offset(-1.05 * u, hy + 0.8 * u), 0.32 * u, cheek);
-    c.drawCircle(Offset(1.05 * u, hy + 0.8 * u), 0.32 * u, cheek);
+  // Mắt to long lanh
+  final ey = hy + 0.35 * u;
+  for (final sx in const [-1.0, 1.0]) {
+    final ec = Offset(sx * 0.68 * u, ey);
+    c.drawOval(Rect.fromCenter(center: ec, width: 0.8 * u, height: 0.95 * u), Paint()..color = Colors.white);
+    c.drawCircle(ec + Offset(0, 0.06 * u), 0.33 * u, Paint()..color = const Color(0xFF3E2723));
+    c.drawCircle(ec + Offset(0.1 * u, -0.1 * u), 0.11 * u, Paint()..color = Colors.white);
+    if (fem) {
+      c.drawLine(ec + Offset(sx * 0.38 * u, -0.3 * u), ec + Offset(sx * 0.62 * u, -0.55 * u), line);
+    }
   }
-  final my = hy + 1.0 * u;
+  // Lông mày
+  if (mood == 2) {
+    c.drawLine(Offset(-1.05 * u, hy - 0.5 * u), Offset(-0.3 * u, hy - 0.15 * u), line);
+    c.drawLine(Offset(1.05 * u, hy - 0.5 * u), Offset(0.3 * u, hy - 0.15 * u), line);
+  } else if (!fem) {
+    final brow = Paint()
+      ..color = lk.hair
+      ..strokeWidth = max(1.2, u * 0.32)
+      ..strokeCap = StrokeCap.round;
+    c.drawLine(Offset(-1.0 * u, hy - 0.45 * u), Offset(-0.38 * u, hy - 0.5 * u), brow);
+    c.drawLine(Offset(1.0 * u, hy - 0.45 * u), Offset(0.38 * u, hy - 0.5 * u), brow);
+  }
+  // Má hồng
+  if (fem || mood == 0) {
+    final cheek = Paint()..color = fem ? const Color(0x66FF8A80) : const Color(0x44FF6F61);
+    c.drawOval(Rect.fromCenter(center: Offset(-1.1 * u, hy + 0.95 * u), width: 0.75 * u, height: 0.45 * u), cheek);
+    c.drawOval(Rect.fromCenter(center: Offset(1.1 * u, hy + 0.95 * u), width: 0.75 * u, height: 0.45 * u), cheek);
+  }
+  // Miệng
+  final my = hy + 1.05 * u;
+  final lip = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = max(1.0, u * 0.22)
+    ..strokeCap = StrokeCap.round
+    ..color = fem ? const Color(0xFFD84367) : const Color(0xFF3E2723);
   if (chew) {
-    c.drawOval(Rect.fromCenter(center: Offset(0, my), width: 0.7 * u, height: 0.5 * u), fill);
+    c.drawOval(Rect.fromCenter(center: Offset(0, my), width: 0.7 * u, height: 0.5 * u), Paint()..color = const Color(0xFF8D3B3B));
   } else if (mood == 0) {
-    c.drawArc(Rect.fromCenter(center: Offset(0, my - 0.3 * u), width: 1.2 * u, height: 0.8 * u), 0.2, pi - 0.4, false, line);
+    c.drawArc(Rect.fromCenter(center: Offset(0, my - 0.3 * u), width: 1.1 * u, height: 0.8 * u), 0.25, pi - 0.5, false, lip);
   } else if (mood == 1) {
-    c.drawLine(Offset(-0.45 * u, my), Offset(0.45 * u, my), line);
+    c.drawLine(Offset(-0.4 * u, my), Offset(0.4 * u, my), lip);
   } else {
-    c.drawArc(Rect.fromCenter(center: Offset(0, my + 0.3 * u), width: 1.2 * u, height: 0.8 * u), pi + 0.2, pi - 0.4, false, line);
-    c.drawLine(Offset(-1.0 * u, hy - 0.45 * u), Offset(-0.3 * u, hy - 0.1 * u), line);
-    c.drawLine(Offset(1.0 * u, hy - 0.45 * u), Offset(0.3 * u, hy - 0.1 * u), line);
+    c.drawArc(Rect.fromCenter(center: Offset(0, my + 0.3 * u), width: 1.1 * u, height: 0.8 * u), pi + 0.25, pi - 0.5, false, lip);
   }
 
   // Mũ đầu bếp
   if (role == 'chef') {
     fill.color = Colors.white;
     final hat = Path()
-      ..addRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-1.5 * u, hy - 3.2 * u, 3.0 * u, 1.9 * u), Radius.circular(0.3 * u)))
-      ..addOval(Rect.fromCircle(center: Offset(-1.0 * u, hy - 3.3 * u), radius: 0.95 * u))
-      ..addOval(Rect.fromCircle(center: Offset(0, hy - 3.8 * u), radius: 1.05 * u))
-      ..addOval(Rect.fromCircle(center: Offset(1.0 * u, hy - 3.3 * u), radius: 0.95 * u));
+      ..addRRect(RRect.fromRectAndRadius(Rect.fromLTWH(-1.5 * u, hy - 3.25 * u, 3.0 * u, 1.9 * u), Radius.circular(0.3 * u)))
+      ..addOval(Rect.fromCircle(center: Offset(-1.0 * u, hy - 3.35 * u), radius: 0.95 * u))
+      ..addOval(Rect.fromCircle(center: Offset(0, hy - 3.85 * u), radius: 1.05 * u))
+      ..addOval(Rect.fromCircle(center: Offset(1.0 * u, hy - 3.35 * u), radius: 0.95 * u));
     c.drawPath(hat, fill);
     c.drawPath(hat, outline);
     fill.color = const Color(0xFFECEFF1);
-    c.drawRect(Rect.fromLTWH(-1.6 * u, hy - 1.75 * u, 3.2 * u, 0.6 * u), fill);
+    c.drawRect(Rect.fromLTWH(-1.65 * u, hy - 1.8 * u, 3.3 * u, 0.6 * u), fill);
   }
   c.restore();
+
+  // Bảng tên (không bị lật khi nhân vật quay trái)
+  if (name != null) {
+    final headTop = p.dy - bob + hy - hr - (role == 'chef' ? 3.0 * u : 0.3 * u);
+    _pill(
+      c,
+      name,
+      Offset(p.dx, headTop - 0.9 * u),
+      max(9.0, u * 1.05),
+      bg: fem ? const Color(0xFFFCE4EC) : const Color(0xFFE3F2FD),
+      fg: fem ? const Color(0xFFC2185B) : const Color(0xFF1565C0),
+    );
+  }
 }
 
 // =====================================================================
@@ -648,7 +783,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (d.ticketId == widget.selDishId) carry = d.recipe.emoji;
     }
     final wp = Offset(_wp.dx * w, _wp.dy * h);
-    items.add(_Item(wp.dy, () => drawPerson(c, wp, s, waiterLook, walking: _walking, phase: _phase, facingLeft: _left, role: 'waiter', carry: carry)));
+    items.add(_Item(wp.dy, () => drawPerson(c, wp, s, waiterLook, walking: _walking, phase: _phase, facingLeft: _left, role: 'waiter', carry: carry, name: kWaiterName)));
 
     items.sort((a, b) => a.y.compareTo(b.y));
     for (final it in items) {
@@ -916,6 +1051,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       facingLeft: _walking ? _left : true,
       mood: anyBurnt ? 2 : 0,
       stir: stirring ? t * 8 : -1,
+      name: kChefName,
     );
   }
 

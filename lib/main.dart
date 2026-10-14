@@ -751,7 +751,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ),
       );
 
-  String roleName(String r) => r == 'chef' ? '👨‍🍳 Đầu bếp' : '🛎️ Phục vụ';
+  String roleName(String r) => r == 'chef' ? '👨‍🍳 $kChefName (Đầu bếp)' : '🛎️ $kWaiterName (Phục vụ)';
 
   // --- Menu & phòng ---
   Widget menuScreen() => Center(
@@ -760,6 +760,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             const SizedBox(height: 12),
             const Text('🍽️', style: TextStyle(fontSize: 64)),
             const Text('Nhà Hàng Đôi', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+            const Text('của $kChefName 👨‍🍳 & $kWaiterName 👩‍🍳', style: TextStyle(fontSize: 16, color: Colors.deepOrange, fontWeight: FontWeight.w600)),
             Text('Ngày $day  •  💰 $money  •  ${venue.emoji} ${venue.name}'),
             const SizedBox(height: 16),
             bigButton('📱 Chơi 1 máy (1–2 người)', () {
@@ -773,8 +774,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             const Padding(
               padding: EdgeInsets.all(20),
               child: Text(
-                '👨‍🍳 ĐẦU BẾP: chạm bếp nhận đơn → chạm đúng nguyên liệu → chờ chín → chạm bếp lấy món ra quầy (đừng để cháy!).\n\n'
-                '🛎️ PHỤC VỤ: chạm khách để nhận order → chạm món ở quầy rồi chạm đúng bàn → chạm bàn bẩn để dọn.\n\n'
+                '👨‍🍳 $kChefName – ĐẦU BẾP: chạm bếp nhận đơn → chạm đúng nguyên liệu → chờ chín → chạm bếp lấy món ra quầy (đừng để cháy!).\n\n'
+                '🛎️ $kWaiterName – PHỤC VỤ: chạm khách để nhận order → chạm món ở quầy rồi chạm đúng bàn → chạm bàn bẩn để dọn.\n\n'
                 '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ chung 1 quán.\n'
                 '🏁 Thi đấu: 2 máy, mỗi người tự lo quán của mình, ai bán được nhiều món hơn thì thắng.\n\n'
                 'Tiền và nâng cấp được lưu tự động, kể cả khi thoát app.',
@@ -849,7 +850,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             Text(guestJoined ? '✅ Hàng xóm đã vào phòng!' : '⏳ Đang chờ hàng xóm nhập mã...', style: const TextStyle(fontSize: 16)),
             Text(netStatus, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 16),
-            bigButton('▶ Bắt đầu ngày $day', guestJoined ? startDay : null),
+            bigButton(guestJoined ? '▶ Bắt đầu ngày $day' : '▶ Chơi thử 1 mình (ngày $day)', startDay, color: guestJoined ? null : Colors.orange.shade700),
+            if (!guestJoined)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Text('Chơi thử: bạn lo cả bếp lẫn sảnh. Hàng xóm vẫn có thể nhập mã vào phòng bất cứ lúc nào.',
+                    textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ),
             bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
             bigButton('⬅ Đóng phòng', () => leaveRoom(), color: Colors.grey),
           ]),
@@ -963,7 +970,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// Thanh điểm của đối thủ (thi đấu)
   Widget oppBar() {
     final lead = served - oppServed;
-    final st = peerLost ? 'mất kết nối' : (oppScr == 'end' ? 'đã xong ngày' : 'đang chơi');
+    final st = (mode == 'host' && !guestJoined) ? 'chưa vào phòng' : (peerLost ? 'mất kết nối' : (oppScr == 'end' ? 'đã xong ngày' : 'đang chơi'));
     return Container(
       width: double.infinity,
       color: lead > 0 ? Colors.green.shade700 : (lead < 0 ? Colors.red.shade700 : Colors.blueGrey.shade700),
@@ -978,9 +985,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget playScreen() {
     // 1 máy hoặc thi đấu: một người lo cả bếp lẫn sảnh.
     // Bếp ở trên, sảnh ở dưới, cùng một hướng nhìn: ô "Quầy ra món" của sảnh nằm sát bếp.
-    if (mode == 'local' || race) {
+    // Chủ phòng chơi thử khi chưa có ai vào: cũng hiện cả bếp lẫn sảnh.
+    if (mode == 'local' || race || (mode == 'host' && !guestJoined)) {
       return Column(children: [
-        hud(race ? '🏁 THI ĐẤU' : '🍽️ NHÀ HÀNG'),
+        hud(race ? '🏁 THI ĐẤU' : '🍽️ $kChefName & $kWaiterName'),
         if (race) oppBar(),
         Expanded(flex: 5, child: kitchenBody(compact: true)),
         Container(height: 3, color: Colors.black54),
@@ -988,7 +996,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       ]);
     }
     return Column(children: [
-      hud(myRole == 'chef' ? '👨‍🍳 ĐẦU BẾP' : '🛎️ PHỤC VỤ'),
+      hud(myRole == 'chef' ? '👨‍🍳 $kChefName' : '🛎️ $kWaiterName'),
       Expanded(child: myRole == 'chef' ? kitchenBody() : diningBody()),
     ]);
   }
@@ -1101,6 +1109,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   // --- Kết thúc ngày ---
   Widget raceResult() {
+    if (mode == 'host' && !guestJoined) {
+      return const Text('🧪 Chơi thử một mình – chưa có đối thủ', style: TextStyle(fontSize: 15));
+    }
     if (oppScr != 'end') {
       return const Text('⏳ Đang chờ hàng xóm phục vụ nốt khách...', style: TextStyle(fontSize: 15));
     }
@@ -1148,8 +1159,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ] else ...[
             bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
             bigButton(
-              race && oppScr == 'play' && !peerLost ? '⏳ Chờ hàng xóm xong ngày' : '▶ Ngày tiếp theo',
-              race && oppScr == 'play' && !peerLost ? null : startDay,
+              race && guestJoined && oppScr == 'play' && !peerLost ? '⏳ Chờ hàng xóm xong ngày' : '▶ Ngày tiếp theo',
+              race && guestJoined && oppScr == 'play' && !peerLost ? null : startDay,
             ),
           ],
           bigButton(mode == 'local' ? '⬅ Về menu' : '⬅ Rời phòng', () {
