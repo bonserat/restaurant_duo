@@ -9,6 +9,7 @@ import 'config.dart';
 import 'data.dart';
 import 'models.dart';
 import 'net.dart';
+import 'scene.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -45,6 +46,7 @@ class _GamePageState extends State<GamePage> {
   DateTime lastPeer = DateTime.now();
   List<dynamic>? _bk; // sao lưu dữ liệu của khách khi vào phòng người khác
   int tickN = 0;
+  int hostDecor = 0; // cấp trang trí của chủ phòng (để khách thấy đúng cây cảnh)
 
   // --- Lưu trữ ---
   int money = 0, day = 1;
@@ -67,6 +69,7 @@ class _GamePageState extends State<GamePage> {
   Venue get venue => venueById(venueId);
   int lvl(String id) => lv[id] ?? 0;
   int get goal => 150 + day * 60;
+  int get decorLv => mode == 'guest' ? hostDecor : lvl('decor');
   bool get peerLost {
     if (mode == 'local') return false;
     if (mode == 'host' && !guestJoined) return false;
@@ -133,6 +136,7 @@ class _GamePageState extends State<GamePage> {
         'sv': served,
         'ls': lost,
         'vn': venueId,
+        'dc': lvl('decor'),
         'tb': tables.map((e) => e.toJson()).toList(),
         'q': queue.map((e) => e.toJson()).toList(),
         'st': stations.map((e) => e.toJson()).toList(),
@@ -155,6 +159,7 @@ class _GamePageState extends State<GamePage> {
       served = (m['sv'] as num).toInt();
       lost = (m['ls'] as num).toInt();
       venueId = m['vn'];
+      hostDecor = (m['dc'] as num?)?.toInt() ?? 0;
       tables = lst('tb', TableS.fromJson);
       queue = lst('q', Ticket.fromJson);
       stations = lst('st', Station.fromJson);
@@ -556,7 +561,7 @@ class _GamePageState extends State<GamePage> {
         body = menuScreen();
     }
     return Scaffold(
-      backgroundColor: Colors.brown.shade50,
+      backgroundColor: const Color(0xFFFFF3E0),
       body: SafeArea(
         child: Column(children: [
           if (peerLost)
@@ -578,7 +583,13 @@ class _GamePageState extends State<GamePage> {
           width: 280,
           height: 52,
           child: ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: color ?? Colors.deepOrange, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color ?? Colors.deepOrange,
+              foregroundColor: Colors.white,
+              elevation: 3,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            ),
             onPressed: onTap,
             child: Text(text, style: const TextStyle(fontSize: 17)),
           ),
@@ -687,13 +698,42 @@ class _GamePageState extends State<GamePage> {
       );
 
   // --- Màn chơi ---
+  Widget _chip(String t, {Color? color}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(color: color ?? Colors.white24, borderRadius: BorderRadius.circular(10)),
+        child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+      );
+
   Widget hud(String role) => Container(
         width: double.infinity,
-        color: Colors.black87,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF3E2723), Color(0xFF6D4C41)])),
+        padding: const EdgeInsets.fromLTRB(8, 5, 8, 4),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('$role • Ngày $day  💰$money  ⏱${max(0, timeLeft).ceil()}s  🎯$earned/$goal', style: const TextStyle(color: Colors.white, fontSize: 12)),
-          Text(msgT > 0 ? msg : ' ', style: const TextStyle(color: Colors.amber, fontSize: 12)),
+          Wrap(spacing: 4, runSpacing: 3, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            Text(role, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+            _chip('📅 $day'),
+            _chip('💰 $money'),
+            _chip('⏱ ${max(0, timeLeft).ceil()}s', color: timeLeft < 15 ? Colors.red.shade400 : null),
+            _chip('🎯 $earned/$goal', color: earned >= goal ? Colors.green.shade600 : null),
+          ]),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: (earned / goal).clamp(0.0, 1.0),
+              minHeight: 4,
+              color: Colors.amber,
+              backgroundColor: Colors.white24,
+            ),
+          ),
+          SizedBox(
+            height: 16,
+            child: AnimatedOpacity(
+              opacity: msgT > 0 ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: Text(msg, style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+          ),
         ]),
       );
 
@@ -712,177 +752,113 @@ class _GamePageState extends State<GamePage> {
   Widget waiterPanel() => Column(children: [
         hud('🛎️ PHỤC VỤ'),
         Expanded(
-          child: GridView.count(
-            crossAxisCount: 4,
-            childAspectRatio: 0.85,
-            padding: const EdgeInsets.all(4),
-            children: [for (var i = 0; i < tables.length; i++) tableTile(i)],
+          child: DiningScene(
+            tables: tables,
+            counter: counter,
+            selDishId: selDishId,
+            venueId: venueId,
+            decor: decorLv,
+            onTable: doTable,
+            onDish: onDish,
           ),
         ),
-        Container(
-          height: 60,
-          color: Colors.brown.shade200,
-          child: Row(children: [
-            const Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('Quầy:')),
-            Expanded(
-              child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final d in counter)
-                  GestureDetector(
-                    onTap: () => onDish(d),
-                    child: Container(
-                      width: 52,
-                      margin: const EdgeInsets.all(5),
-                      decoration: BoxDecoration(
-                        color: d.quality < 0.6 ? Colors.red.shade100 : Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: selDishId == d.ticketId ? Colors.green : Colors.grey, width: selDishId == d.ticketId ? 4 : 1),
-                      ),
-                      child: Center(child: Text(d.recipe.emoji, style: const TextStyle(fontSize: 26))),
-                    ),
-                  ),
-              ]),
-            ),
-          ]),
-        ),
       ]);
-
-  Widget tableTile(int i) {
-    final t = tables[i];
-    final c = t.c;
-    var top = '🪑', sub = 'Bàn ${i + 1}';
-    var col = Colors.brown.shade100;
-    var border = Colors.grey;
-    var bw = 1.0;
-    if (t.dirty) {
-      top = '🧹';
-      sub = 'Dọn bàn';
-      col = Colors.grey.shade400;
-    } else if (c != null) {
-      if (c.st == 0) {
-        top = '🙋';
-        sub = 'Gọi món!';
-        col = Colors.amber.shade200;
-      } else if (c.st == 1) {
-        top = c.recipe.emoji;
-        sub = 'Chờ món';
-        col = Colors.orange.shade200;
-        if (selDishId != null && selDishId == c.ticketId) {
-          border = Colors.green;
-          bw = 4;
-        }
-      } else {
-        top = '😋';
-        sub = 'Đang ăn';
-        col = Colors.green.shade200;
-      }
-    }
-    return GestureDetector(
-      onTap: () => doTable(i),
-      child: Container(
-        margin: const EdgeInsets.all(3),
-        decoration: BoxDecoration(color: col, borderRadius: BorderRadius.circular(12), border: Border.all(color: border, width: bw)),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(top, style: const TextStyle(fontSize: 28)),
-          Text(sub, style: const TextStyle(fontSize: 11)),
-          if (c != null && c.st < 2)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 4, 6, 0),
-              child: LinearProgressIndicator(
-                value: (c.pat / c.maxPat).clamp(0.0, 1.0),
-                color: c.pat / c.maxPat < 0.35 ? Colors.red : Colors.green,
-                backgroundColor: Colors.white,
-              ),
-            ),
-        ]),
-      ),
-    );
-  }
 
   // --- Đầu bếp ---
   String ingEmoji(String id) => venue.shelf.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?')).emoji;
 
   Widget chefPanel() => Column(children: [
         hud('👨‍🍳 ĐẦU BẾP'),
-        SizedBox(
-          height: 58,
-          child: queue.isEmpty
-              ? const Center(child: Text('Chưa có đơn hàng', style: TextStyle(color: Colors.grey)))
-              : ListView(scrollDirection: Axis.horizontal, children: [
-                  for (final tk in queue)
-                    Container(
-                      width: 62,
-                      margin: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(color: Colors.yellow.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.orange)),
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Text('${tk.recipe.emoji} B${tk.table + 1}', style: const TextStyle(fontSize: 15)),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: LinearProgressIndicator(
-                            value: tk.table < tables.length && tables[tk.table].c != null ? (tables[tk.table].c!.pat / tables[tk.table].c!.maxPat).clamp(0.0, 1.0) : 0,
-                            color: Colors.orange,
-                          ),
-                        ),
-                      ]),
-                    ),
-                ]),
+        ticketRail(),
+        Expanded(
+          child: KitchenScene(
+            stations: stations,
+            activeStation: activeStation,
+            hasOrders: queue.isNotEmpty,
+            venueId: venueId,
+            ingEmoji: ingEmoji,
+            onStation: doStation,
+          ),
         ),
-        Expanded(child: Row(children: [for (var i = 0; i < stations.length; i++) stationTile(i)])),
-        Padding(
-          padding: const EdgeInsets.all(4),
-          child: Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6, children: [
-            for (final ing in venue.shelf)
-              GestureDetector(
-                onTap: () => doIngredient(ing.id),
-                child: Container(
-                  width: 56,
-                  height: 52,
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey)),
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Text(ing.emoji, style: const TextStyle(fontSize: 22)),
-                    Text(ing.name, style: const TextStyle(fontSize: 9), overflow: TextOverflow.ellipsis),
-                  ]),
-                ),
-              ),
-          ]),
-        ),
+        ingredientShelf(),
       ]);
 
-  Widget stationTile(int i) {
-    final s = stations[i];
-    final act = i == activeStation;
-    Widget body;
-    if (s.t == null) {
-      body = Text(queue.isEmpty ? 'Bếp trống' : 'Chạm để\nnhận đơn', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12));
-    } else {
-      final r = s.t!.recipe;
-      body = Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Text('${r.emoji} B${s.t!.table + 1}', style: const TextStyle(fontSize: 16)),
-        Wrap(alignment: WrapAlignment.center, children: [
-          for (final id in r.ings) Opacity(opacity: s.added.contains(id) ? 0.25 : 1, child: Text(ingEmoji(id), style: const TextStyle(fontSize: 18))),
-        ]),
-        if (s.done)
-          Text(s.burnt ? '🔥 Cháy! Lấy ra' : '✅ Lấy món!', style: const TextStyle(fontSize: 12))
-        else if (s.cooking)
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: LinearProgressIndicator(value: s.need <= 0 ? 0 : (s.prog / s.need).clamp(0.0, 1.0)))
-        else
-          const Text('Chọn nguyên liệu', style: TextStyle(fontSize: 10)),
-      ]);
-    }
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => doStation(i),
-        child: Container(
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: s.done ? (s.burnt ? Colors.red.shade200 : Colors.green.shade200) : Colors.blueGrey.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: act ? Colors.blue : Colors.grey, width: act ? 3 : 1),
-          ),
-          child: Center(child: body),
+  /// Thanh treo phiếu order
+  Widget ticketRail() => Container(
+        height: 66,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF90A4AE), Color(0xFF607D8B)]),
         ),
+        child: Stack(children: [
+          Positioned(left: 0, right: 0, top: 6, child: Container(height: 4, color: const Color(0xFFCFD8DC))),
+          queue.isEmpty
+              ? const Center(child: Text('Chưa có order nào 💤', style: TextStyle(color: Colors.white70)))
+              : ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 4), children: [
+                  for (final tk in queue) _ticketCard(tk),
+                ]),
+        ]),
+      );
+
+  Widget _ticketCard(Ticket tk) {
+    final c = tk.table < tables.length ? tables[tk.table].c : null;
+    final frac = c == null ? 0.0 : (c.pat / c.maxPat).clamp(0.0, 1.0);
+    return Transform.rotate(
+      angle: ((tk.id % 3) - 1) * 0.05,
+      child: Container(
+        width: 60,
+        margin: const EdgeInsets.fromLTRB(3, 4, 3, 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFDE7),
+          borderRadius: BorderRadius.circular(4),
+          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 3, offset: Offset(0, 2))],
+        ),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
+          Text(tk.recipe.emoji, style: const TextStyle(fontSize: 20)),
+          Text('Bàn ${tk.table + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
+            child: LinearProgressIndicator(
+              value: frac,
+              minHeight: 3,
+              color: frac < 0.35 ? Colors.red : Colors.orange,
+              backgroundColor: Colors.black12,
+            ),
+          ),
+        ]),
       ),
     );
   }
+
+  /// Kệ nguyên liệu bằng gỗ
+  Widget ingredientShelf() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFA1887F), Color(0xFF6D4C41)]),
+          border: Border(top: BorderSide(color: Color(0xFF4E342E), width: 4)),
+        ),
+        child: Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6, children: [
+          for (final ing in venue.shelf)
+            Material(
+              color: const Color(0xFFFFF8E1),
+              elevation: 3,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => doIngredient(ing.id),
+                child: SizedBox(
+                  width: 56,
+                  height: 54,
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Text(ing.emoji, style: const TextStyle(fontSize: 24)),
+                    Text(ing.name, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                  ]),
+                ),
+              ),
+            ),
+        ]),
+      );
 
   // --- Kết thúc ngày ---
   Widget endScreen() {
