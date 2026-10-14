@@ -28,7 +28,7 @@ class GamePage extends StatefulWidget {
   State<GamePage> createState() => _GamePageState();
 }
 
-class _GamePageState extends State<GamePage> {
+class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   final rnd = Random();
   final net = Net();
   final codeCtl = TextEditingController();
@@ -41,6 +41,12 @@ class _GamePageState extends State<GamePage> {
   String mode = 'local'; // local (1 máy) | host | guest
   String myRole = 'both'; // chef | waiter | both
   String createRole = 'chef';
+  String gameType = 'coop'; // coop: 1 đầu bếp + 1 phục vụ | race: mỗi người 1 quán, thi bán nhiều món
+  String createGame = 'coop';
+  bool paused = false;
+  // Điểm của đối thủ (chế độ thi đấu)
+  int oppServed = 0, oppEarned = 0;
+  String oppScr = 'wait';
   String roomCode = '', netStatus = '';
   bool guestJoined = false, joined = false;
   DateTime lastPeer = DateTime.now();
@@ -69,7 +75,11 @@ class _GamePageState extends State<GamePage> {
   Venue get venue => venueById(venueId);
   int lvl(String id) => lv[id] ?? 0;
   int get goal => 150 + day * 60;
-  int get decorLv => mode == 'guest' ? hostDecor : lvl('decor');
+  int get decorLv => remote ? hostDecor : lvl('decor');
+  /// Khách trong chế độ hợp tác: chỉ hiển thị, mọi thao tác gửi lên chủ phòng
+  bool get remote => mode == 'guest' && gameType == 'coop';
+  bool get race => mode != 'local' && gameType == 'race';
+  String get shopBack => mode == 'host' ? 'lobby' : (mode == 'guest' ? 'wait' : 'menu');
   bool get peerLost {
     if (mode == 'local') return false;
     if (mode == 'host' && !guestJoined) return false;
@@ -81,11 +91,20 @@ class _GamePageState extends State<GamePage> {
   void initState() {
     super.initState();
     recipes.addAll(venueById('cafe').recipes.where((r) => r.unlock == 0).map((r) => r.id));
+    WidgetsBinding.instance.addObserver(this);
     load();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Thoát ra màn hình chính / tắt app → lưu ngay
+    if (state != AppLifecycleState.resumed) save();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    save();
     timer?.cancel();
     netTimer?.cancel();
     codeCtl.dispose();
@@ -108,9 +127,17 @@ class _GamePageState extends State<GamePage> {
   }
 
   Future<void> save() async {
-    if (mode == 'guest') return; // khách không ghi đè dữ liệu của mình
+    var m0 = money, d0 = day, v0 = venueId;
+    if (remote) {
+      // Đang ở quán của người khác: lưu dữ liệu quán của MÌNH (đã sao lưu khi vào phòng)
+      final bk = _bk;
+      if (bk == null) return;
+      m0 = bk[0] as int;
+      d0 = bk[1] as int;
+      v0 = bk[2] as String;
+    }
     final p = await SharedPreferences.getInstance();
-    await p.setString('save', jsonEncode({'money': money, 'day': day, 'lv': lv, 'recipes': recipes.toList(), 'owned': owned.toList(), 'venue': venueId}));
+    await p.setString('save', jsonEncode({'money': m0, 'day': d0, 'lv': lv, 'recipes': recipes.toList(), 'owned': owned.toList(), 'venue': v0}));
   }
 
   void say(String m) {
@@ -147,7 +174,10 @@ class _GamePageState extends State<GamePage> {
         'sl': starsLog,
       };
 
+  Map<String, dynamic> raceStatus() => {'t': 'race', 'scr': screen, 'sv': served, 'ea': earned, 'tl': r2(timeLeft), 'day': day};
+
   void applySnapshot(Map<String, dynamic> m) {
+    var reward = false;
     List<T> lst<T>(String k, T Function(Map<String, dynamic>) f) => (m[k] as List).map((e) => f(Map<String, dynamic>.from(e as Map))).toList();
     setState(() {
       myRole = m['hr'] == 'chef' ? 'waiter' : 'chef';
@@ -169,9 +199,24 @@ class _GamePageState extends State<GamePage> {
       msgT = (m['mt'] as num).toDouble();
       starsLog = List<int>.from((m['sl'] as List).map((e) => (e as num).toInt()));
       if (selDishId != null && !counter.any((d) => d.ticketId == selDishId)) selDishId = null;
+      gameType = 'coop';
       final scr = m['scr'];
+      // Hết ngày: quán của mình cũng nhận số tiền cả đội kiếm được
+      final bk = _bk;
+      if (scr == 'end' && screen == 'play' && bk != null) {
+        bk[0] = (bk[0] as int) + earned;
+        bk[1] = (bk[1] as int) + 1;
+        reward = true;
+      }
       screen = (scr == 'play' || scr == 'end') ? scr : 'wait';
     });
+    if (reward) save();
+  }
+
+  void applyRace(Map<String, dynamic> m) {
+    oppServed = (m['sv'] as num?)?.toInt() ?? 0;
+    oppEarned = (m['ea'] as num?)?.toInt() ?? 0;
+    oppScr = m['scr'] as String? ?? 'wait';
   }
 
   void onNet(Map<String, dynamic> m) {
@@ -180,9 +225,12 @@ class _GamePageState extends State<GamePage> {
     if (mode == 'host') {
       if (t == 'join') {
         guestJoined = true;
-        net.send(snapshot());
+        net.send(race ? raceStatus() : snapshot());
         setState(() {});
-      } else if (t == 'act') {
+      } else if (t == 'race') {
+        applyRace(m);
+        setState(() {});
+      } else if (t == 'act' && !race) {
         applyAction(m);
       } else if (t == 'bye') {
         lastPeer = DateTime(2000);
@@ -191,6 +239,15 @@ class _GamePageState extends State<GamePage> {
     } else if (mode == 'guest') {
       if (t == 'state') {
         applySnapshot(m);
+      } else if (t == 'race') {
+        gameType = 'race';
+        joined = true;
+        myRole = 'both';
+        applyRace(m);
+        if (!['play', 'end', 'shop'].contains(screen)) screen = 'wait';
+        setState(() {});
+      } else if (t == 'start') {
+        if (gameType == 'race' && screen != 'play') startDay();
       } else if (t == 'bye') {
         leaveRoom(notice: 'Chủ phòng đã rời phòng');
       }
@@ -222,20 +279,22 @@ class _GamePageState extends State<GamePage> {
     if (!onlineConfigured) return snack('Chưa điền Supabase trong lib/config.dart');
     roomCode = _newCode();
     mode = 'host';
-    myRole = createRole;
+    gameType = createGame;
+    myRole = createGame == 'race' ? 'both' : createRole;
+    oppScr = 'wait';
     guestJoined = false;
     lastPeer = DateTime.now();
     netStatus = 'Đang kết nối...';
     setState(() => screen = 'lobby');
     await net.connect(roomCode, onNet, () {
       if (mounted) setState(() => netStatus = 'Phòng đã mở');
-      net.send(snapshot());
+      net.send(race ? raceStatus() : snapshot());
     }, (e) {
       if (mounted) setState(() => netStatus = 'Lỗi kết nối: $e');
     });
     netTimer?.cancel();
     netTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mode == 'host') net.send(snapshot());
+      if (mode == 'host') net.send(race ? raceStatus() : snapshot());
       if (mounted) setState(() {});
     });
   }
@@ -247,6 +306,8 @@ class _GamePageState extends State<GamePage> {
     _bk = [money, day, venueId];
     roomCode = code;
     mode = 'guest';
+    gameType = 'coop'; // sẽ biết đúng loại khi nhận tin đầu tiên từ chủ phòng
+    oppScr = 'wait';
     joined = false;
     lastPeer = DateTime.now();
     netStatus = 'Đang kết nối...';
@@ -259,7 +320,10 @@ class _GamePageState extends State<GamePage> {
     });
     netTimer?.cancel();
     netTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mode == 'guest') net.send({'t': 'join'}); // vừa là xin vào, vừa là ping
+      if (mode == 'guest') {
+        net.send({'t': 'join'}); // vừa là xin vào, vừa là ping
+        if (race) net.send(raceStatus());
+      }
       if (mounted) setState(() {});
     });
   }
@@ -270,13 +334,17 @@ class _GamePageState extends State<GamePage> {
     netTimer?.cancel();
     timer?.cancel();
     await net.disconnect();
-    if (mode == 'guest' && _bk != null) {
-      money = _bk![0];
-      day = _bk![1];
-      venueId = _bk![2];
-      _bk = null;
+    final bk = _bk;
+    if (remote && bk != null) {
+      // trả lại dữ liệu quán của mình (đã cộng tiền thưởng các ngày hợp tác)
+      money = bk[0] as int;
+      day = bk[1] as int;
+      venueId = bk[2] as String;
     }
+    _bk = null;
     mode = 'local';
+    gameType = 'coop';
+    paused = false;
     myRole = 'both';
     guestJoined = false;
     joined = false;
@@ -284,7 +352,70 @@ class _GamePageState extends State<GamePage> {
     selDishId = null;
     if (!mounted) return;
     setState(() => screen = 'menu');
+    save();
     if (notice != null) snack(notice);
+  }
+
+  // ---------- Thoát ván giữa chừng ----------
+  Future<void> confirmExit() async {
+    if (mode == 'local') setState(() => paused = true);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Thoát ván này?'),
+        content: Text(remote
+            ? 'Bạn sẽ rời phòng của hàng xóm.'
+            : 'Tiền đã kiếm được trong ván vẫn được lưu lại.${mode == 'local' ? '' : '\nBạn sẽ rời phòng.'}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Chơi tiếp')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Thoát')),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => paused = false);
+    if (ok == true) await quitGame();
+  }
+
+  Future<void> quitGame() async {
+    timer?.cancel();
+    await save();
+    if (mode == 'local') {
+      if (mounted) setState(() => screen = 'menu');
+    } else {
+      await leaveRoom();
+    }
+  }
+
+  /// Nút back hệ thống (Android) / vuốt lùi
+  void onBack() {
+    switch (screen) {
+      case 'play':
+        confirmExit();
+        break;
+      case 'menu':
+        SystemNavigator.pop();
+        break;
+      case 'shop':
+        setState(() => screen = shopBack);
+        break;
+      case 'create':
+        setState(() => screen = 'menu');
+        break;
+      case 'join':
+        if (mode == 'guest') {
+          leaveRoom();
+        } else {
+          setState(() => screen = 'menu');
+        }
+        break;
+      default: // lobby, wait, end
+        if (mode == 'local') {
+          setState(() => screen = 'menu');
+        } else {
+          leaveRoom();
+        }
+    }
   }
 
   // =====================================================================
@@ -307,8 +438,17 @@ class _GamePageState extends State<GamePage> {
     msgT = 0;
     timer?.cancel();
     timer = Timer.periodic(const Duration(milliseconds: 100), (_) => tick(0.1));
+    paused = false;
     setState(() => screen = 'play');
-    if (mode == 'host') net.send(snapshot());
+    if (race) {
+      oppServed = 0;
+      oppEarned = 0;
+      oppScr = 'play';
+      if (mode == 'host') net.send({'t': 'start'});
+      net.send(raceStatus());
+    } else if (mode == 'host') {
+      net.send(snapshot());
+    }
   }
 
   void endDay() {
@@ -317,12 +457,16 @@ class _GamePageState extends State<GamePage> {
     day++;
     save();
     setState(() => screen = 'end');
-    if (mode == 'host') net.send(snapshot());
+    if (race) {
+      net.send(raceStatus());
+    } else if (mode == 'host') {
+      net.send(snapshot());
+    }
   }
 
   void tick(double dt) {
-    if (screen != 'play' || mode == 'guest') return;
-    if (peerLost) {
+    if (screen != 'play' || remote || paused) return;
+    if (peerLost && !race) {
       setState(() {}); // tạm dừng khi đối tác mất kết nối
       return;
     }
@@ -392,7 +536,11 @@ class _GamePageState extends State<GamePage> {
       return;
     }
     tickN++;
-    if (mode == 'host' && tickN % 2 == 0) net.send(snapshot());
+    if (race) {
+      if (tickN % 5 == 0) net.send(raceStatus());
+    } else if (mode == 'host' && tickN % 2 == 0) {
+      net.send(snapshot());
+    }
     setState(() {});
   }
 
@@ -422,6 +570,7 @@ class _GamePageState extends State<GamePage> {
     t.c = null;
     t.dirty = true;
     t.dirtyT = 0;
+    save(); // lưu tiền ngay sau mỗi khách
   }
 
   // ---------- Logic thao tác (chạy ở local / host) ----------
@@ -488,32 +637,32 @@ class _GamePageState extends State<GamePage> {
   // ---------- Thao tác từ giao diện (tự chọn: chạy tại chỗ hoặc gửi lên host) ----------
   void doTable(int i) {
     final waiting = i < tables.length && tables[i].c?.st == 1;
-    if (mode == 'guest') {
+    if (remote) {
       net.send({'t': 'act', 'a': 'table', 'i': i, 'd': selDishId});
     } else {
       onTable(i, selDishId);
-      if (mode == 'host') net.send(snapshot());
+      if (mode == 'host' && !race) net.send(snapshot());
     }
     if (waiting) selDishId = null;
     setState(() {});
   }
 
   void doStation(int i) {
-    if (mode == 'guest') {
+    if (remote) {
       net.send({'t': 'act', 'a': 'station', 'i': i});
     } else {
       onStation(i);
-      if (mode == 'host') net.send(snapshot());
+      if (mode == 'host' && !race) net.send(snapshot());
     }
     setState(() {});
   }
 
   void doIngredient(String id) {
-    if (mode == 'guest') {
+    if (remote) {
       net.send({'t': 'act', 'a': 'ing', 'id': id});
     } else {
       onIngredient(id);
-      if (mode == 'host') net.send(snapshot());
+      if (mode == 'host' && !race) net.send(snapshot());
     }
     setState(() {});
   }
@@ -560,7 +709,12 @@ class _GamePageState extends State<GamePage> {
       default:
         body = menuScreen();
     }
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) onBack();
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFFFF3E0),
       body: SafeArea(
         child: Column(children: [
@@ -569,10 +723,11 @@ class _GamePageState extends State<GamePage> {
               width: double.infinity,
               color: Colors.red,
               padding: const EdgeInsets.all(6),
-              child: const Text('⚠️ Mất kết nối với hàng xóm… ván tạm dừng', style: TextStyle(color: Colors.white), textAlign: TextAlign.center),
+              child: Text(race ? '⚠️ Mất kết nối với hàng xóm…' : '⚠️ Mất kết nối với hàng xóm… ván tạm dừng', style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
             ),
           Expanded(child: body),
         ]),
+      ),
       ),
     );
   }
@@ -602,24 +757,27 @@ class _GamePageState extends State<GamePage> {
   Widget menuScreen() => Center(
         child: SingleChildScrollView(
           child: Column(children: [
+            const SizedBox(height: 12),
             const Text('🍽️', style: TextStyle(fontSize: 64)),
             const Text('Nhà Hàng Đôi', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
             Text('Ngày $day  •  💰 $money  •  ${venue.emoji} ${venue.name}'),
             const SizedBox(height: 16),
-            bigButton('🌐 Tạo phòng (mời hàng xóm)', () => setState(() => screen = 'create')),
-            bigButton('🔑 Vào phòng bằng mã', () => setState(() => screen = 'join'), color: Colors.indigo),
-            bigButton('📱 Chơi chung 1 máy', () {
+            bigButton('📱 Chơi 1 máy (1–2 người)', () {
               mode = 'local';
               myRole = 'both';
               startDay();
             }, color: Colors.green),
+            bigButton('🌐 Tạo phòng (mời hàng xóm)', () => setState(() => screen = 'create')),
+            bigButton('🔑 Vào phòng bằng mã', () => setState(() => screen = 'join'), color: Colors.indigo),
             bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
             const Padding(
               padding: EdgeInsets.all(20),
               child: Text(
                 '👨‍🍳 ĐẦU BẾP: chạm bếp nhận đơn → chạm đúng nguyên liệu → chờ chín → chạm bếp lấy món ra quầy (đừng để cháy!).\n\n'
-                '🛎️ PHỤC VỤ: chạm khách để nhận món → chạm món ở quầy rồi chạm đúng bàn để phục vụ → chạm bàn bẩn để dọn.\n\n'
-                'Chơi online: một người tạo phòng, người kia nhập mã 4 ký tự. Tiền và tiến trình được lưu trên máy chủ phòng.',
+                '🛎️ PHỤC VỤ: chạm khách để nhận order → chạm món ở quầy rồi chạm đúng bàn → chạm bàn bẩn để dọn.\n\n'
+                '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ chung 1 quán.\n'
+                '🏁 Thi đấu: 2 máy, mỗi người tự lo quán của mình, ai bán được nhiều món hơn thì thắng.\n\n'
+                'Tiền và nâng cấp được lưu tự động, kể cả khi thoát app.',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -627,35 +785,75 @@ class _GamePageState extends State<GamePage> {
         ),
       );
 
-  Widget createScreen() => Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Text('Bạn muốn đóng vai nào?', style: TextStyle(fontSize: 20)),
-          const SizedBox(height: 12),
-          Wrap(spacing: 10, children: [
-            for (final r in ['chef', 'waiter'])
-              ChoiceChip(label: Text(roleName(r), style: const TextStyle(fontSize: 16)), selected: createRole == r, onSelected: (_) => setState(() => createRole = r)),
-          ]),
+  Widget _modeCard(String id, String title, String desc) {
+    final sel = createGame == id;
+    return GestureDetector(
+      onTap: () => setState(() => createGame = id),
+      child: Container(
+        width: 150,
+        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: sel ? Colors.orange.shade100 : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: sel ? Colors.deepOrange : Colors.grey.shade300, width: sel ? 3 : 1),
+        ),
+        child: Column(children: [
+          Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
-          Text('Hàng xóm sẽ nhận vai còn lại: ${roleName(createRole == 'chef' ? 'waiter' : 'chef')}'),
-          const SizedBox(height: 16),
-          bigButton('Tạo phòng', createRoom),
-          bigButton('Quay lại', () => setState(() => screen = 'menu'), color: Colors.grey),
+          Text(desc, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
         ]),
+      ),
+    );
+  }
+
+  Widget createScreen() => Center(
+        child: SingleChildScrollView(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('Chọn kiểu chơi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _modeCard('coop', '🤝 Hợp tác', 'Chung 1 quán: một người nấu, một người phục vụ'),
+              _modeCard('race', '🏁 Thi đấu', 'Mỗi người 1 quán, ai bán nhiều món hơn thắng'),
+            ]),
+            const SizedBox(height: 12),
+            if (createGame == 'coop') ...[
+              const Text('Bạn muốn đóng vai nào?', style: TextStyle(fontSize: 16)),
+              const SizedBox(height: 8),
+              Wrap(spacing: 10, children: [
+                for (final r in ['chef', 'waiter'])
+                  ChoiceChip(label: Text(roleName(r), style: const TextStyle(fontSize: 16)), selected: createRole == r, onSelected: (_) => setState(() => createRole = r)),
+              ]),
+              const SizedBox(height: 6),
+              Text('Hàng xóm sẽ nhận vai còn lại: ${roleName(createRole == 'chef' ? 'waiter' : 'chef')}'),
+            ] else
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Text('Mỗi người dùng quán, tiền và nâng cấp của riêng mình. Hai bên bắt đầu ngày cùng lúc.', textAlign: TextAlign.center),
+              ),
+            const SizedBox(height: 16),
+            bigButton('Tạo phòng', createRoom),
+            bigButton('⬅ Quay lại', () => setState(() => screen = 'menu'), color: Colors.grey),
+          ]),
+        ),
       );
 
   Widget lobbyScreen() => Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Text('Mã phòng', style: TextStyle(fontSize: 16)),
-          Text(roomCode, style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold, letterSpacing: 8)),
-          Text('Bạn: ${roleName(myRole)}  •  Hàng xóm: ${roleName(myRole == 'chef' ? 'waiter' : 'chef')}'),
-          const SizedBox(height: 8),
-          Text(guestJoined ? '✅ Hàng xóm đã vào phòng!' : '⏳ Đang chờ hàng xóm nhập mã...', style: const TextStyle(fontSize: 16)),
-          Text(netStatus, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 16),
-          bigButton('▶ Bắt đầu ngày $day', guestJoined ? startDay : null),
-          bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-          bigButton('Đóng phòng', () => leaveRoom(), color: Colors.grey),
-        ]),
+        child: SingleChildScrollView(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Text(race ? '🏁 Phòng thi đấu' : '🤝 Phòng hợp tác', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Mã phòng', style: TextStyle(fontSize: 16)),
+            Text(roomCode, style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold, letterSpacing: 8)),
+            if (!race) Text('Bạn: ${roleName(myRole)}  •  Hàng xóm: ${roleName(myRole == 'chef' ? 'waiter' : 'chef')}'),
+            const SizedBox(height: 8),
+            Text(guestJoined ? '✅ Hàng xóm đã vào phòng!' : '⏳ Đang chờ hàng xóm nhập mã...', style: const TextStyle(fontSize: 16)),
+            Text(netStatus, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 16),
+            bigButton('▶ Bắt đầu ngày $day', guestJoined ? startDay : null),
+            bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
+            bigButton('⬅ Đóng phòng', () => leaveRoom(), color: Colors.grey),
+          ]),
+        ),
       );
 
   Widget joinScreen() => Center(
@@ -688,13 +886,22 @@ class _GamePageState extends State<GamePage> {
       );
 
   Widget waitScreen() => Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Text('✅', style: TextStyle(fontSize: 56)),
-          Text('Đã vào phòng $roomCode', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          Text('Vai của bạn: ${roleName(myRole)}', style: const TextStyle(fontSize: 18)),
-          const Padding(padding: EdgeInsets.all(16), child: Text('Chờ chủ phòng bắt đầu ngày mới...\n(họ có thể đang mua sắm trong cửa hàng)', textAlign: TextAlign.center)),
-          bigButton('Rời phòng', () => leaveRoom(), color: Colors.grey),
-        ]),
+        child: SingleChildScrollView(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('✅', style: TextStyle(fontSize: 56)),
+            Text('Đã vào phòng $roomCode', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(race ? '🏁 Chế độ thi đấu' : 'Vai của bạn: ${roleName(myRole)}', style: const TextStyle(fontSize: 18)),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                race ? 'Chờ chủ phòng bắt đầu ngày mới...\nTrong lúc chờ bạn có thể mua sắm cho quán của mình.' : 'Chờ chủ phòng bắt đầu ngày mới...\n(họ có thể đang mua sắm trong cửa hàng)',
+                textAlign: TextAlign.center,
+              ),
+            ),
+            if (race) bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
+            bigButton('⬅ Rời phòng', () => leaveRoom(), color: Colors.grey),
+          ]),
+        ),
       );
 
   // --- Màn chơi ---
@@ -707,14 +914,30 @@ class _GamePageState extends State<GamePage> {
   Widget hud(String role) => Container(
         width: double.infinity,
         decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF3E2723), Color(0xFF6D4C41)])),
-        padding: const EdgeInsets.fromLTRB(8, 5, 8, 4),
+        padding: const EdgeInsets.fromLTRB(8, 5, 4, 4),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Wrap(spacing: 4, runSpacing: 3, crossAxisAlignment: WrapCrossAlignment.center, children: [
-            Text(role, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-            _chip('📅 $day'),
-            _chip('💰 $money'),
-            _chip('⏱ ${max(0, timeLeft).ceil()}s', color: timeLeft < 15 ? Colors.red.shade400 : null),
-            _chip('🎯 $earned/$goal', color: earned >= goal ? Colors.green.shade600 : null),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Wrap(spacing: 4, runSpacing: 3, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                Text(role, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                _chip('📅 $day'),
+                _chip('💰 $money'),
+                _chip('⏱ ${max(0, timeLeft).ceil()}s', color: timeLeft < 15 ? Colors.red.shade400 : null),
+                _chip('🎯 $earned/$goal', color: earned >= goal ? Colors.green.shade600 : null),
+                if (race) _chip('🍽️ $served món', color: Colors.blue.shade600),
+              ]),
+            ),
+            // Nút thoát ván
+            InkWell(
+              onTap: confirmExit,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
           ]),
           const SizedBox(height: 4),
           ClipRRect(
@@ -737,39 +960,55 @@ class _GamePageState extends State<GamePage> {
         ]),
       );
 
+  /// Thanh điểm của đối thủ (thi đấu)
+  Widget oppBar() {
+    final lead = served - oppServed;
+    final st = peerLost ? 'mất kết nối' : (oppScr == 'end' ? 'đã xong ngày' : 'đang chơi');
+    return Container(
+      width: double.infinity,
+      color: lead > 0 ? Colors.green.shade700 : (lead < 0 ? Colors.red.shade700 : Colors.blueGrey.shade700),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Text(
+        '🆚 Hàng xóm: 🍽️ $oppServed món • 💰 $oppEarned ($st)   ${lead > 0 ? '👑 Bạn dẫn trước' : (lead < 0 ? '😬 Bạn đang thua' : '🤝 Hoà')}',
+        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+
   Widget playScreen() {
-    if (mode == 'local') {
+    // 1 máy hoặc thi đấu: một người lo cả bếp lẫn sảnh.
+    // Bếp ở trên, sảnh ở dưới, cùng một hướng nhìn: ô "Quầy ra món" của sảnh nằm sát bếp.
+    if (mode == 'local' || race) {
       return Column(children: [
-        Expanded(child: RotatedBox(quarterTurns: 2, child: waiterPanel())),
-        Container(height: 3, color: Colors.black),
-        Expanded(child: chefPanel()),
+        hud(race ? '🏁 THI ĐẤU' : '🍽️ NHÀ HÀNG'),
+        if (race) oppBar(),
+        Expanded(flex: 5, child: kitchenBody(compact: true)),
+        Container(height: 3, color: Colors.black54),
+        Expanded(flex: 6, child: diningBody()),
       ]);
     }
-    return myRole == 'chef' ? chefPanel() : waiterPanel();
+    return Column(children: [
+      hud(myRole == 'chef' ? '👨‍🍳 ĐẦU BẾP' : '🛎️ PHỤC VỤ'),
+      Expanded(child: myRole == 'chef' ? kitchenBody() : diningBody()),
+    ]);
   }
 
   // --- Phục vụ ---
-  Widget waiterPanel() => Column(children: [
-        hud('🛎️ PHỤC VỤ'),
-        Expanded(
-          child: DiningScene(
-            tables: tables,
-            counter: counter,
-            selDishId: selDishId,
-            venueId: venueId,
-            decor: decorLv,
-            onTable: doTable,
-            onDish: onDish,
-          ),
-        ),
-      ]);
+  Widget diningBody() => DiningScene(
+        tables: tables,
+        counter: counter,
+        selDishId: selDishId,
+        venueId: venueId,
+        decor: decorLv,
+        onTable: doTable,
+        onDish: onDish,
+      );
 
   // --- Đầu bếp ---
   String ingEmoji(String id) => venue.shelf.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?')).emoji;
 
-  Widget chefPanel() => Column(children: [
-        hud('👨‍🍳 ĐẦU BẾP'),
-        ticketRail(),
+  Widget kitchenBody({bool compact = false}) => Column(children: [
+        ticketRail(compact: compact),
         Expanded(
           child: KitchenScene(
             stations: stations,
@@ -780,12 +1019,12 @@ class _GamePageState extends State<GamePage> {
             onStation: doStation,
           ),
         ),
-        ingredientShelf(),
+        ingredientShelf(compact: compact),
       ]);
 
   /// Thanh treo phiếu order
-  Widget ticketRail() => Container(
-        height: 66,
+  Widget ticketRail({bool compact = false}) => Container(
+        height: compact ? 58 : 66,
         decoration: const BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF90A4AE), Color(0xFF607D8B)]),
         ),
@@ -806,7 +1045,7 @@ class _GamePageState extends State<GamePage> {
       angle: ((tk.id % 3) - 1) * 0.05,
       child: Container(
         width: 60,
-        margin: const EdgeInsets.fromLTRB(3, 4, 3, 4),
+        margin: const EdgeInsets.fromLTRB(3, 3, 3, 3),
         decoration: BoxDecoration(
           color: const Color(0xFFFFFDE7),
           borderRadius: BorderRadius.circular(4),
@@ -814,7 +1053,7 @@ class _GamePageState extends State<GamePage> {
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
-          Text(tk.recipe.emoji, style: const TextStyle(fontSize: 20)),
+          Text(tk.recipe.emoji, style: const TextStyle(fontSize: 18)),
           Text('Bàn ${tk.table + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
@@ -831,14 +1070,14 @@ class _GamePageState extends State<GamePage> {
   }
 
   /// Kệ nguyên liệu bằng gỗ
-  Widget ingredientShelf() => Container(
+  Widget ingredientShelf({bool compact = false}) => Container(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+        padding: EdgeInsets.fromLTRB(4, compact ? 5 : 8, 4, compact ? 5 : 8),
         decoration: const BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFA1887F), Color(0xFF6D4C41)]),
           border: Border(top: BorderSide(color: Color(0xFF4E342E), width: 4)),
         ),
-        child: Wrap(alignment: WrapAlignment.center, spacing: 6, runSpacing: 6, children: [
+        child: Wrap(alignment: WrapAlignment.center, spacing: compact ? 4 : 6, runSpacing: compact ? 4 : 6, children: [
           for (final ing in venue.shelf)
             Material(
               color: const Color(0xFFFFF8E1),
@@ -848,10 +1087,10 @@ class _GamePageState extends State<GamePage> {
                 borderRadius: BorderRadius.circular(14),
                 onTap: () => doIngredient(ing.id),
                 child: SizedBox(
-                  width: 56,
-                  height: 54,
+                  width: compact ? 46 : 56,
+                  height: compact ? 46 : 54,
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Text(ing.emoji, style: const TextStyle(fontSize: 24)),
+                    Text(ing.emoji, style: TextStyle(fontSize: compact ? 20 : 24)),
                     Text(ing.name, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
                   ]),
                 ),
@@ -861,34 +1100,67 @@ class _GamePageState extends State<GamePage> {
       );
 
   // --- Kết thúc ngày ---
+  Widget raceResult() {
+    if (oppScr != 'end') {
+      return const Text('⏳ Đang chờ hàng xóm phục vụ nốt khách...', style: TextStyle(fontSize: 15));
+    }
+    final diff = served != oppServed ? served - oppServed : earned - oppEarned;
+    final title = diff > 0 ? '🏆 Bạn thắng!' : (diff < 0 ? '😢 Hàng xóm thắng' : '🤝 Hoà!');
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.orange, width: 2)),
+      child: Column(children: [
+        Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        Table(defaultColumnWidth: const IntrinsicColumnWidth(), children: [
+          const TableRow(children: [Text(''), Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Bạn', style: TextStyle(fontWeight: FontWeight.bold))), Text('Hàng xóm', style: TextStyle(fontWeight: FontWeight.bold))]),
+          TableRow(children: [const Text('🍽️ Món bán'), Center(child: Text('$served')), Center(child: Text('$oppServed'))]),
+          TableRow(children: [const Text('💰 Thu nhập'), Center(child: Text('$earned')), Center(child: Text('$oppEarned'))]),
+        ]),
+      ]),
+    );
+  }
+
   Widget endScreen() {
     final avg = starsLog.isEmpty ? 0.0 : starsLog.reduce((a, b) => a + b) / starsLog.length;
     final prevGoal = 150 + (day - 1) * 60; // day đã tăng sau khi kết thúc ngày
     final reached = earned >= prevGoal;
     final isGuest = mode == 'guest';
+    final bk = _bk;
     return Center(
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Text(reached ? '🎉 Đạt mục tiêu! (+50 thưởng)' : '😅 Chưa đạt mục tiêu', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        Text('Thu nhập ngày: $earned / $prevGoal'),
-        Text('Đã phục vụ: $served   •   Khách bỏ về: $lost'),
-        Text('Đánh giá TB: ${avg.toStringAsFixed(1)} ⭐'),
-        Text('Tổng tiền quán: 💰 $money'),
-        const SizedBox(height: 20),
-        if (isGuest)
-          const Padding(padding: EdgeInsets.all(8), child: Text('Chờ chủ phòng chọn bước tiếp theo...'))
-        else ...[
-          bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-          bigButton('▶ Ngày tiếp theo', startDay),
-        ],
-        bigButton(mode == 'local' ? 'Menu' : 'Rời phòng', () {
-          if (mode == 'local') {
-            setState(() => screen = 'menu');
-          } else {
-            leaveRoom();
-          }
-        }, color: Colors.grey),
-      ]),
+      child: SingleChildScrollView(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          if (race) ...[raceResult(), const SizedBox(height: 16)],
+          Text(reached ? '🎉 Đạt mục tiêu! (+50 thưởng)' : '😅 Chưa đạt mục tiêu', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Text('Thu nhập ngày: $earned / $prevGoal'),
+          Text('Đã phục vụ: $served   •   Khách bỏ về: $lost'),
+          Text('Đánh giá TB: ${avg.toStringAsFixed(1)} ⭐'),
+          if (remote && bk != null)
+            Text('Quán của bạn cũng nhận +$earned 💰 (tổng: ${bk[0]})', style: const TextStyle(fontWeight: FontWeight.bold))
+          else
+            Text('Tổng tiền quán: 💰 $money'),
+          const Text('💾 Đã lưu tiến trình', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 20),
+          if (isGuest) ...[
+            if (race) bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
+            const Padding(padding: EdgeInsets.all(8), child: Text('Chờ chủ phòng bắt đầu ngày tiếp theo...')),
+          ] else ...[
+            bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
+            bigButton(
+              race && oppScr == 'play' && !peerLost ? '⏳ Chờ hàng xóm xong ngày' : '▶ Ngày tiếp theo',
+              race && oppScr == 'play' && !peerLost ? null : startDay,
+            ),
+          ],
+          bigButton(mode == 'local' ? '⬅ Về menu' : '⬅ Rời phòng', () {
+            if (mode == 'local') {
+              setState(() => screen = 'menu');
+            } else {
+              leaveRoom();
+            }
+          }, color: Colors.grey),
+        ]),
+      ),
     );
   }
 
@@ -900,7 +1172,7 @@ class _GamePageState extends State<GamePage> {
         color: Colors.teal,
         padding: const EdgeInsets.all(12),
         child: Row(children: [
-          IconButton(onPressed: () => setState(() => screen = mode == 'host' ? 'lobby' : 'menu'), icon: const Icon(Icons.arrow_back, color: Colors.white)),
+          IconButton(onPressed: () => setState(() => screen = shopBack), icon: const Icon(Icons.arrow_back, color: Colors.white)),
           Text('Cửa hàng   💰 $money', style: const TextStyle(color: Colors.white, fontSize: 20)),
         ]),
       ),
