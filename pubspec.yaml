@@ -1,0 +1,16 @@
+name: restaurant_duo
+description: Game nha hang 2 nguoi choi tren iOS.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.2.0
+  supabase_flutter: ^2.5.0
+
+flutter:
+  uses-material-design: true
