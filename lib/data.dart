@@ -1,6 +1,7 @@
 class Ing {
   final String id, emoji, name;
-  const Ing(this.id, this.emoji, this.name);
+  final int cut; // số nhát cần thái trên thớt (0 = cho thẳng vào nồi)
+  const Ing(this.id, this.emoji, this.name, [this.cut = 0]);
 }
 
 class Recipe {
@@ -10,6 +11,9 @@ class Recipe {
   final int price; // giá bán
   final int unlock; // chi phí mở khoá (0 = có sẵn)
   const Recipe(this.id, this.name, this.emoji, this.ings, this.cook, this.price, this.unlock);
+
+  /// Lượng gia vị chuẩn của món (1–3 lần nêm)
+  double get salt => 1.0 + id.codeUnits.fold<int>(0, (a, b) => a + b) % 3;
 }
 
 class Venue {
@@ -42,7 +46,7 @@ const venues = [
     Ing('milk', '🥛', 'Sữa'),
     Ing('ice', '🧊', 'Đá'),
     Ing('tea', '🍵', 'Trà'),
-    Ing('straw', '🍓', 'Dâu'),
+    Ing('straw', '🍓', 'Dâu', 2),
     Ing('honey', '🍯', 'Mật ong'),
   ], [
     Recipe('cf_den', 'Cà phê đen', '☕', ['bean'], 3, 20, 0),
@@ -55,9 +59,9 @@ const venues = [
     Ing('flour', '🌾', 'Bột'),
     Ing('egg', '🥚', 'Trứng'),
     Ing('butter', '🧈', 'Bơ'),
-    Ing('choco', '🍫', 'Socola'),
-    Ing('straw', '🍓', 'Dâu'),
-    Ing('cheese', '🧀', 'Phô mai'),
+    Ing('choco', '🍫', 'Socola', 1),
+    Ing('straw', '🍓', 'Dâu', 2),
+    Ing('cheese', '🧀', 'Phô mai', 1),
   ], [
     Recipe('banh_mi', 'Bánh mì bơ', '🥖', ['flour', 'butter'], 4, 25, 0),
     Recipe('cookie', 'Cookie socola', '🍪', ['flour', 'butter', 'choco'], 5, 35, 0),
@@ -67,9 +71,9 @@ const venues = [
   Venue('chinese', 'Nhà hàng Trung', '🥟', 600, 12, 0.95, [
     Ing('rice', '🍚', 'Cơm'),
     Ing('egg', '🥚', 'Trứng'),
-    Ing('dough', '🫓', 'Bột bọc'),
-    Ing('meat', '🥩', 'Thịt'),
-    Ing('veg', '🥬', 'Rau'),
+    Ing('dough', '🫓', 'Bột bọc', 1),
+    Ing('meat', '🥩', 'Thịt', 3),
+    Ing('veg', '🥬', 'Rau', 2),
     Ing('noodle', '🍜', 'Mì'),
     Ing('sauce', '🥫', 'Sốt'),
   ], [
@@ -80,11 +84,11 @@ const venues = [
   ]),
   Venue('mexican', 'Nhà hàng Mexico', '🌮', 900, 12, 0.9, [
     Ing('tortilla', '🫓', 'Vỏ bánh'),
-    Ing('meat', '🥩', 'Thịt'),
-    Ing('cheese', '🧀', 'Phô mai'),
-    Ing('tomato', '🍅', 'Cà chua'),
-    Ing('avocado', '🥑', 'Bơ'),
-    Ing('chili', '🌶️', 'Ớt'),
+    Ing('meat', '🥩', 'Thịt', 3),
+    Ing('cheese', '🧀', 'Phô mai', 1),
+    Ing('tomato', '🍅', 'Cà chua', 2),
+    Ing('avocado', '🥑', 'Bơ', 2),
+    Ing('chili', '🌶️', 'Ớt', 1),
     Ing('bean', '🫘', 'Đậu'),
   ], [
     Recipe('taco', 'Taco', '🌮', ['tortilla', 'meat', 'tomato'], 5, 45, 0),
@@ -95,10 +99,10 @@ const venues = [
   ]),
   Venue('truck', 'Xe bán đồ ăn lưu động', '🚚', 1200, 6, 0.6, [
     Ing('bun', '🍞', 'Bánh mì'),
-    Ing('meat', '🥩', 'Thịt'),
-    Ing('veg', '🥬', 'Rau'),
-    Ing('cheese', '🧀', 'Phô mai'),
-    Ing('potato', '🥔', 'Khoai'),
+    Ing('meat', '🥩', 'Thịt', 3),
+    Ing('veg', '🥬', 'Rau', 2),
+    Ing('cheese', '🧀', 'Phô mai', 1),
+    Ing('potato', '🥔', 'Khoai', 3),
     Ing('sauce', '🥫', 'Sốt'),
   ], [
     Recipe('fries', 'Khoai chiên', '🍟', ['potato', 'sauce'], 4, 30, 0),
@@ -111,3 +115,129 @@ const venues = [
 Venue venueById(String id) => venues.firstWhere((v) => v.id == id);
 
 Recipe recipeById(String id) => venues.expand((v) => v.recipes).firstWhere((r) => r.id == id);
+
+// =====================================================================
+//  GIA VỊ – tên theo loại quán
+// =====================================================================
+String seasonName(String venueId) => (venueId == 'cafe' || venueId == 'bakery') ? 'Đường' : 'Muối';
+String seasonEmoji(String venueId) => (venueId == 'cafe' || venueId == 'bakery') ? '🍬' : '🧂';
+
+// =====================================================================
+//  KHÁCH ĐẶC BIỆT (NPC) – mỗi người có tính cách, sở thích và câu chuyện
+// =====================================================================
+class NpcType {
+  final String id, emoji, title, name;
+  final double patMul, payMul, saltPref, chance;
+  final List<String> lines; // câu nói theo số lần ghé quán
+  const NpcType(this.id, this.emoji, this.title, this.name, this.patMul, this.payMul, this.saltPref, this.chance, this.lines);
+}
+
+const npcTypes = [
+  NpcType('vip', '👑', 'Khách VIP', 'Ông Bảy', 0.8, 2.0, 0, 0.08, [
+    'Phục vụ cho xứng đáng, tôi trả gấp đôi!',
+    'Lần trước ngon đấy. Hôm nay tôi dẫn đối tác tới.',
+    'Tôi sẽ ghi quán này vào cẩm nang 5 sao!',
+  ]),
+  NpcType('critic', '🧐', 'Nhà phê bình', 'Cô Lan', 0.9, 1.2, 0, 0.06, [
+    'Tôi viết blog ẩm thực. Gia vị phải thật chuẩn nhé.',
+    'Bài trước về quán được 10 nghìn lượt xem đó!',
+    'Hôm nay tôi chấm điểm cho chuyên mục "Quán quen".',
+  ]),
+  NpcType('hunter', '🏹', 'Thợ săn', 'Chú Tư', 1.0, 1.3, 1.0, 0.07, [
+    'Đi rừng cả tuần, cho chú món gì đậm đà!',
+    'Hôm nay chú gặp con nai to lắm, mà để nó đi rồi.',
+    'Ăn ở đây xong chú mới có sức vào rừng.',
+  ]),
+  NpcType('student', '🎒', 'Học sinh', 'Bé Na', 1.35, 0.7, -0.6, 0.10, [
+    'Con để dành tiền ăn sáng để tới đây đó!',
+    'Con được điểm 10, mẹ cho đi ăn mừng!',
+    'Lớn lên con muốn làm đầu bếp giống anh chị!',
+  ]),
+  NpcType('stranger', '🕵️', 'Người lạ bí ẩn', 'Người lạ', 1.1, 1.0, 0, 0.03, [
+    '…',
+    'Mùi vị này… gợi nhớ quán xưa của ta.',
+    'Ta từng là bếp trưởng. Giữ lấy món quà này nhé.',
+  ]),
+];
+
+NpcType? npcById(String id) {
+  for (final n in npcTypes) {
+    if (n.id == id) return n;
+  }
+  return null;
+}
+
+// =====================================================================
+//  THÚ CƯNG
+// =====================================================================
+class PetType {
+  final String id, emoji, name, perk;
+  final int cost;
+  const PetType(this.id, this.emoji, this.name, this.perk, this.cost);
+}
+
+const petTypes = [
+  PetType('cat', '🐈', 'Mèo Mướp', 'Nằm cạnh khách đang sốt ruột: khách chờ được lâu hơn', 0),
+  PetType('dog', '🐕', 'Chó Vàng', 'Đuổi chuột giúp, đôi khi mang may mắn: khách tip gấp rưỡi', 250),
+  PetType('hamster', '🐹', 'Hamster Bông', 'Bùa may mắn: mỗi khách trả thêm 5%', 150),
+  PetType('parrot', '🦜', 'Vẹt Xanh', 'Chào khách ở cửa: khách mới kiên nhẫn thêm 10 giây', 200),
+];
+
+PetType petById(String id) => petTypes.firstWhere((p) => p.id == id, orElse: () => petTypes.first);
+
+// =====================================================================
+//  ĐỒ TRANG TRÍ (kéo thả tự do)
+// =====================================================================
+class DecoType {
+  final String id, emoji, name;
+  final int cost;
+  final bool wall; // treo tường (chỉ kéo ngang)
+  final double size; // kích thước so với bàn
+  const DecoType(this.id, this.emoji, this.name, this.cost, this.wall, this.size);
+}
+
+const decoTypes = [
+  DecoType('plant', '🪴', 'Chậu cây', 40, false, 1.1),
+  DecoType('flower', '💐', 'Bình hoa', 50, false, 0.9),
+  DecoType('tree', '🌳', 'Cây lớn', 120, false, 1.7),
+  DecoType('bar', '🍸', 'Quầy bar', 300, false, 1.0),
+  DecoType('piano', '🎹', 'Đàn piano', 400, false, 1.5),
+  DecoType('fish', '🐠', 'Bể cá', 250, false, 1.2),
+  DecoType('books', '📚', 'Kệ sách', 120, false, 1.2),
+  DecoType('sofa', '🛋️', 'Ghế sofa chờ', 200, false, 1.5),
+  DecoType('statue', '🗿', 'Tượng đá', 180, false, 1.3),
+  DecoType('frame', '🖼️', 'Tranh treo tường', 80, true, 1.0),
+  DecoType('clock', '🕰️', 'Đồng hồ', 90, true, 1.0),
+  DecoType('lantern', '🏮', 'Đèn lồng', 60, true, 1.0),
+  DecoType('light', '💡', 'Đèn treo', 70, true, 1.0),
+];
+
+DecoType decoById(String id) => decoTypes.firstWhere((d) => d.id == id, orElse: () => decoTypes.first);
+
+/// Kiểu ánh sáng của quán
+const lightModes = [
+  ['day', '☀️ Ban ngày'],
+  ['warm', '🕯️ Ấm áp'],
+  ['romantic', '🌙 Lãng mạn'],
+  ['disco', '🪩 Sôi động'],
+];
+
+// =====================================================================
+//  SỰ CỐ BẤT NGỜ và dụng cụ xử lý
+// =====================================================================
+class IncidentType {
+  final String id, emoji, name, tool, toolEmoji, toolName, hint;
+  final int hp; // số lần dùng dụng cụ
+  final bool kitchen; // xảy ra ở bếp (đầu bếp xử lý) hay sảnh (phục vụ xử lý)
+  const IncidentType(this.id, this.emoji, this.name, this.tool, this.toolEmoji, this.toolName, this.hint, this.hp, this.kitchen);
+}
+
+const incidentTypes = [
+  IncidentType('fire', '🔥', 'Cháy bếp', 'ext', '🧯', 'Bình chữa cháy', 'Chọn 🧯 rồi chạm vào bếp đang cháy', 4, true),
+  IncidentType('power', '⚡', 'Mất điện', 'fuse', '🔌', 'Cầu dao', 'Chọn 🔌 rồi chạm hộp cầu dao góc trên bếp', 1, true),
+  IncidentType('rat', '🐀', 'Chuột chạy qua', 'broom', '🧹', 'Chổi', 'Chọn 🧹 rồi chạm trúng con chuột', 2, false),
+  IncidentType('leak', '💧', 'Rò rỉ nước', 'wrench', '🔧', 'Cờ lê', 'Chọn 🔧 rồi chạm vào vũng nước', 3, false),
+  IncidentType('brawl', '💢', 'Khách gây gổ', 'tea', '🍵', 'Trà xoa dịu', 'Chọn 🍵 rồi chạm vào bàn khách đang nổi nóng', 3, false),
+];
+
+IncidentType incidentType(String id) => incidentTypes.firstWhere((t) => t.id == id, orElse: () => incidentTypes.first);

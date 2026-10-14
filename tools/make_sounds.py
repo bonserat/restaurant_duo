@@ -319,6 +319,73 @@ def make_sfx():
         st = rng.uniform(0.1, 1.0)
         mix_into(x, highpass(noise(0.01, sr), sr, 4000) * rng.uniform(0.2, 0.6), st * sr)
     save_wav('firework', x, peak=0.5)
+    make_sfx2()
+
+
+def make_sfx2():
+    """Âm thanh cho nấu nhiều công đoạn, sự cố và thú cưng"""
+    sr = SFX_SR
+    # nhát dao trên thớt
+    x = np.zeros(int(0.15 * sr))
+    mix_into(x, lowpass(noise(0.03, sr), sr, 2500) * expdecay(int(0.03 * sr), sr, 0.008), 0)
+    mix_into(x, sine(180, 0.1, sr) * expdecay(int(0.1 * sr), sr, 0.02) * 0.8, 0)
+    save_wav('chop', x, peak=0.7)
+    # rắc gia vị: lạo xạo
+    x = np.zeros(int(0.25 * sr))
+    for k in range(3):
+        mix_into(x, highpass(noise(0.04, sr), sr, 5000) * env(int(0.04 * sr), sr, 0.005, 0.01, 0.6, 0.02), k * 0.07 * sr)
+    save_wav('shake', x, peak=0.45)
+    # vặn núm: tách
+    x = highpass(noise(0.015, sr), sr, 3000) * expdecay(int(0.015 * sr), sr, 0.004)
+    x = np.concatenate([x, np.zeros(int(0.03 * sr)), x * 0.6])
+    save_wav('knob', x, peak=0.5)
+    # còi báo cháy
+    t = np.arange(int(1.2 * sr)) / sr
+    f = 900 + 350 * np.sign(np.sin(2 * np.pi * 3 * t))
+    x = lowpass(np.sign(np.sin(2 * np.pi * np.cumsum(f) / sr)), sr, 2500) * env(len(t), sr, 0.01, 0.05, 0.8, 0.1)
+    save_wav('alarm', x, peak=0.4)
+    # mất điện: tụt áp
+    x = sweep(440, 60, 0.7, sr, 'square')
+    x = lowpass(x, sr, 1200) * env(len(x), sr, 0.005, 0.1, 0.8, 0.3)
+    mix_into(x, highpass(noise(0.05, sr), sr, 3000) * 0.5, 0)
+    save_wav('powerdown', x, peak=0.45)
+    # chuột kêu chít chít
+    x = np.zeros(int(0.4 * sr))
+    for k in range(3):
+        mix_into(x, sweep(3000, 4200, 0.05, sr) * env(int(0.05 * sr), sr, 0.005, 0.01, 0.8, 0.02), k * 0.11 * sr)
+    save_wav('squeak', x, peak=0.4)
+    # nước nhỏ giọt
+    x = np.zeros(int(0.6 * sr))
+    for k in range(2):
+        mix_into(x, sweep(1400, 2600, 0.06, sr) * expdecay(int(0.06 * sr), sr, 0.02), k * 0.3 * sr)
+    save_wav('drip', x, peak=0.5)
+    # khách quát tháo: "hừm!"
+    t = np.arange(int(0.45 * sr)) / sr
+    f = 160 * (1 + 0.25 * np.exp(-t / 0.1)) * (1 + 0.05 * np.sin(2 * np.pi * 25 * t))
+    x = np.sign(np.sin(2 * np.pi * np.cumsum(f) / sr)) * 0.6 + lowpass(noise(0.45, sr), sr, 1500) * 0.3
+    x = lowpass(x, sr, 1800) * env(len(t), sr, 0.02, 0.1, 0.7, 0.15)
+    save_wav('shout', x, peak=0.45)
+    # xử lý xong sự cố: tinh tinh
+    x = np.zeros(int(0.6 * sr))
+    mix_into(x, bell(note_hz(m('E6')), 0.4, sr), 0)
+    mix_into(x, bell(note_hz(m('B6')), 0.45, sr), 0.1 * sr)
+    save_wav('fixed', x, peak=0.55)
+    # mèo rừ rừ
+    t = np.arange(int(0.7 * sr)) / sr
+    x = lowpass(noise(0.7, sr), sr, 400) * (0.6 + 0.4 * np.sin(2 * np.pi * 24 * t)) * env(len(t), sr, 0.1, 0.1, 0.8, 0.2)
+    save_wav('purr', x, peak=0.5)
+    # chó sủa gâu
+    x = np.zeros(int(0.45 * sr))
+    for k in range(2):
+        b = lowpass(sweep(500, 280, 0.12, sr, 'square'), sr, 1500) * env(int(0.12 * sr), sr, 0.005, 0.03, 0.6, 0.04)
+        mix_into(x, b, k * 0.2 * sr)
+    save_wav('woof', x, peak=0.5)
+    # vẹt hót
+    x = np.zeros(int(0.4 * sr))
+    mix_into(x, sweep(2000, 3200, 0.08, sr), 0)
+    mix_into(x, sweep(3200, 2400, 0.08, sr), 0.1 * sr)
+    mix_into(x, sweep(2400, 3600, 0.1, sr), 0.2 * sr)
+    save_wav('chirp', x * 0.6, peak=0.45)
 
 
 # ------------------------------------------------------------------ nhạc nền

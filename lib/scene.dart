@@ -3,6 +3,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'data.dart';
 import 'models.dart';
 import 'sound.dart';
 
@@ -624,6 +625,7 @@ void _ambientFront(Canvas c, double w, double h, double top, String style, doubl
 }
 
 /// Mèo con đi dạo trong quán
+// ignore: unused_element
 void _drawCat(Canvas c, double w, double y, double r, double t) {
   const period = 26.0;
   final ph = (t % period) / period;
@@ -657,6 +659,67 @@ void _drawCat(Canvas c, double w, double y, double r, double t) {
 }
 
 // =====================================================================
+//  KHÁCH ĐẶC BIỆT: bộ đồ riêng + bong bóng kể chuyện
+// =====================================================================
+const Map<String, Look> _npcLooks = {
+  'vip': Look(Color(0xFFF1C27D), Color(0xFF9E9E9E), Color(0xFF212121), Color(0xFF212121), 4),
+  'critic': Look(Color(0xFFFFDBB4), Color(0xFF6D4C41), Color(0xFF7E57C2), Color(0xFF4A148C), 1, female: true),
+  'hunter': Look(Color(0xFFC68642), Color(0xFF3E2723), Color(0xFF558B2F), Color(0xFF5D4037), 0),
+  'student': Look(Color(0xFFFFE0CC), Color(0xFF2B1B17), Color(0xFFFFFFFF), Color(0xFF1E88E5), 2, female: true, bow: Color(0xFF1E88E5)),
+  'stranger': Look(Color(0xFFE0AC69), Color(0xFF212121), Color(0xFF37474F), Color(0xFF263238), 0),
+};
+
+Look custLook(String npc, int seed) => _npcLooks[npc] ?? Look.seed(seed);
+
+/// Bong bóng lời thoại có xuống dòng, đáy ở [anchor]
+void _speech(Canvas c, String text, Offset anchor, double maxW, double fs, {Color bg = Colors.white, Color fg = const Color(0xFF3E2723)}) {
+  final tp = TextPainter(
+    text: TextSpan(text: text, style: TextStyle(fontSize: fs, color: fg, height: 1.25)),
+    textDirection: TextDirection.ltr,
+    maxLines: 3,
+    ellipsis: '…',
+  )..layout(maxWidth: maxW);
+  final rect = Rect.fromLTWH(anchor.dx - tp.width / 2 - fs * 0.6, anchor.dy - tp.height - fs * 1.4, tp.width + fs * 1.2, tp.height + fs * 0.9);
+  final rr = RRect.fromRectAndRadius(rect, Radius.circular(fs * 0.8));
+  c.drawRRect(rr.shift(const Offset(0, 2)), Paint()..color = const Color(0x33000000));
+  c.drawPath(
+    Path()
+      ..moveTo(anchor.dx - fs * 0.5, rect.bottom - 1)
+      ..lineTo(anchor.dx, anchor.dy)
+      ..lineTo(anchor.dx + fs * 0.5, rect.bottom - 1)
+      ..close(),
+    Paint()..color = bg,
+  );
+  c.drawRRect(rr, Paint()..color = bg);
+  tp.paint(c, Offset(rect.left + fs * 0.6, rect.top + fs * 0.45));
+}
+
+/// Vị trí đi dạo của thú cưng (đi qua đi lại, thỉnh thoảng nghỉ)
+(Offset, bool, bool) _wander(double t, double w, double y, double period, double offset) {
+  final ph = ((t + offset) % period) / period;
+  double pos;
+  bool moving, right;
+  if (ph < 0.4) {
+    pos = ph / 0.4;
+    moving = true;
+    right = true;
+  } else if (ph < 0.5) {
+    pos = 1;
+    moving = false;
+    right = true;
+  } else if (ph < 0.9) {
+    pos = 1 - (ph - 0.5) / 0.4;
+    moving = true;
+    right = false;
+  } else {
+    pos = 0;
+    moving = false;
+    right = false;
+  }
+  return (Offset(w * 0.08 + pos * w * 0.84, y), moving, right);
+}
+
+// =====================================================================
 //  SẢNH NHÀ HÀNG (vai PHỤC VỤ)
 // =====================================================================
 const _walkIn = 1.1, _walkOut = 1.3;
@@ -665,7 +728,8 @@ class _Leaver {
   final int table, seed;
   final double t0;
   final bool happy;
-  _Leaver(this.table, this.seed, this.t0, this.happy);
+  final String npc;
+  _Leaver(this.table, this.seed, this.t0, this.happy, [this.npc = '']);
 }
 
 class _Coin {
@@ -690,6 +754,14 @@ class DiningScene extends StatefulWidget {
   final String waiterName;
   final void Function(int) onTable;
   final void Function(Dish) onDish;
+  final List<Offset?> tablePos; // vị trí bàn tự sắp xếp (tỉ lệ trên sàn)
+  final List<Deco> decos;
+  final String light;
+  final List<String> pets;
+  final List<Incident> incidents;
+  final String? tool; // dụng cụ đang cầm
+  final void Function(int)? onIncident;
+  final void Function(String)? onPet;
   const DiningScene({
     super.key,
     required this.tables,
@@ -702,6 +774,14 @@ class DiningScene extends StatefulWidget {
     this.style = 'classic',
     this.waiterLook = ngocAnhLook,
     this.waiterName = kNgocAnh,
+    this.tablePos = const [],
+    this.decos = const [],
+    this.light = 'day',
+    this.pets = const [],
+    this.incidents = const [],
+    this.tool,
+    this.onIncident,
+    this.onPet,
   });
 
   @override
@@ -726,10 +806,19 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
   int _seedN = 0;
   final List<_Leaver> _leavers = [];
   final List<_Coin> _coins = [];
+  List<String> _npcP = [];
+  final Map<int, String> _incP = {};
+  // Thú cưng
+  final Map<String, Offset> _petPos = {};
+  final Map<String, bool> _petLeft = {};
+  final Map<String, double> _petHeartAt = {};
+  final Map<String, bool> _petMoving = {};
+  bool _catBeside = false;
+  double _lastPT = 0;
 
   // Bố cục (tính lại mỗi khung hình)
   Size _size = Size.zero;
-  double _r = 20, _s = 48, _wallH = 60;
+  double _r = 20, _s = 48, _wallH = 60, _floorTop = 70;
   List<Offset> _tc = [];
   List<Rect> _hit = [];
   List<Rect> _slots = [];
@@ -767,6 +856,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       _cleanAt = List.filled(n, -10.0);
       _serveAt = List.filled(n, -10.0);
       _seed = List.filled(n, 0);
+      _npcP = List.filled(n, '');
       _leavers.clear();
       _coins.clear();
       first = true;
@@ -779,11 +869,13 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         if (!first) Sound.sfx('door', vol: 0.55);
       } else if (!occ && _occ[i] && !first) {
         final happy = tb[i].dirty; // được phục vụ xong thì bàn bẩn
-        _leavers.add(_Leaver(i, _seed[i], _t, happy));
+        _leavers.add(_Leaver(i, _seed[i], _t, happy, _npcP[i]));
         if (happy) _coins.add(_Coin(i, _t));
         Sound.sfx(happy ? 'coin' : 'angry');
       }
       _occ[i] = occ;
+      final cu = tb[i].c;
+      if (cu != null) _npcP[i] = cu.npc;
 
       final dirty = tb[i].dirty;
       if (!first && _dirtyP[i] && !dirty) {
@@ -801,6 +893,21 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (!first && _stP[i] == 0 && stv == 1) Sound.sfx('order');
       _stP[i] = stv;
     }
+    // Âm thanh sự cố ở sảnh (bếp tự lo sự cố của bếp)
+    final now = <int, String>{for (final x in widget.incidents) x.id: x.type};
+    for (final e in now.entries) {
+      if (!_incP.containsKey(e.key) && !first) {
+        if (e.value == 'rat') Sound.sfx('squeak');
+        if (e.value == 'leak') Sound.sfx('drip');
+        if (e.value == 'brawl') Sound.sfx('shout');
+      }
+    }
+    for (final e in _incP.entries) {
+      if (!now.containsKey(e.key) && !first && (e.value == 'rat' || e.value == 'leak' || e.value == 'brawl')) Sound.sfx('fixed');
+    }
+    _incP
+      ..clear()
+      ..addAll(now);
   }
 
   void _onTick(Duration e) {
@@ -835,8 +942,31 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     _wt = Offset(x / w, y / h);
   }
 
+  Offset _incPos(Incident x) => Offset(x.x * _size.width, _floorTop + x.y * (_size.height - _floorTop));
+
   void _tap(TapUpDetails d) {
     final p = d.localPosition;
+    // 1) Sự cố ở sảnh: chuột, vũng nước (bàn gây gổ chỉ khi đang cầm dụng cụ)
+    for (final x in widget.incidents) {
+      if (x.type == 'rat' || x.type == 'leak') {
+        if ((p - _incPos(x)).distance < _r * (x.type == 'rat' ? 1.1 : 1.3)) {
+          widget.onIncident?.call(x.id);
+          return;
+        }
+      } else if (x.type == 'brawl' && widget.tool != null && x.target < _hit.length && _hit[x.target].contains(p)) {
+        widget.onIncident?.call(x.id);
+        return;
+      }
+    }
+    // 2) Vuốt ve thú cưng
+    for (final e in _petPos.entries) {
+      if ((p - e.value).distance < _r * 0.8) {
+        _petHeartAt[e.key] = _t;
+        Sound.sfx(e.key == 'dog' ? 'woof' : (e.key == 'parrot' ? 'chirp' : (e.key == 'hamster' ? 'squeak' : 'purr')));
+        widget.onPet?.call(e.key);
+        return;
+      }
+    }
     for (var j = 0; j < _slots.length && j < widget.counter.length; j++) {
       if (_slots[j].inflate(4).contains(p)) {
         widget.onDish(widget.counter[j]);
@@ -884,8 +1014,21 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     final s = r * 2.4;
     _r = r;
     _s = s;
-    _tc = [for (var i = 0; i < n; i++) Offset(cellW * (i % cols + 0.5), floorTop + cellH * (i ~/ cols + 0.5) + s * 0.16)];
-    _hit = [for (var i = 0; i < n; i++) Rect.fromLTWH(cellW * (i % cols), floorTop + cellH * (i ~/ cols), cellW, cellH)];
+    _floorTop = floorTop;
+    final floorH = h - floorTop;
+    _tc = [];
+    _hit = [];
+    for (var i = 0; i < n; i++) {
+      final o = i < widget.tablePos.length ? widget.tablePos[i] : null;
+      if (o != null) {
+        final ct = Offset(o.dx * w, floorTop + o.dy * floorH);
+        _tc.add(ct);
+        _hit.add(Rect.fromCenter(center: ct - Offset(0, r * 0.4), width: r * 2.8, height: r * 3.2));
+      } else {
+        _tc.add(Offset(cellW * (i % cols + 0.5), floorTop + cellH * (i ~/ cols + 0.5) + s * 0.16));
+        _hit.add(Rect.fromLTWH(cellW * (i % cols), floorTop + cellH * (i ~/ cols), cellW, cellH));
+      }
+    }
     final cx0 = w * 0.03, cx1 = w * 0.74;
     final slotW = (cx1 - cx0) / 6;
     _slots = [for (var j = 0; j < 6; j++) Rect.fromLTWH(cx0 + slotW * j, wallH * 0.3, slotW, wallH * 0.7)];
@@ -979,6 +1122,14 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (bad) _emoji(c, '💨', pc + Offset(pr * 0.95, -pr * 1.3), pr * 0.7);
     }
 
+    // Đồ treo tường (tự sắp xếp)
+    for (final d in widget.decos) {
+      final dt = decoById(d.type);
+      if (!dt.wall) continue;
+      final sw = dt.id == 'lantern' ? sin(t * 2 + d.x * 10) * 2 : 0.0;
+      _emoji(c, dt.emoji, Offset(d.x * w + sw, wallH * 0.17), wallH * 0.26);
+    }
+
     // Cửa ra vào
     final dr = Rect.fromLTRB(w * 0.79, wallH * 0.26, w * 0.95, wallH);
     c.drawRect(dr.inflate(3), Paint()..color = th.trim);
@@ -1004,8 +1155,10 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         final k = ((t - _arr[i]) / _walkIn).clamp(0.0, 1.0).toDouble();
         final seat = _seat(i);
         final p = Offset.lerp(_door, seat, Curves.easeInOut.transform(k))!;
-        final look = Look.seed(_seed[i]);
-        items.add(_Item(p.dy, () => drawPerson(c, p, s, look, walking: true, phase: t * 13 + i, facingLeft: seat.dx < _door.dx)));
+        final npc = tb[i].c!.npc;
+        final look = custLook(npc, _seed[i]);
+        final ss = npc == 'student' ? s * 0.82 : s;
+        items.add(_Item(p.dy, () => drawPerson(c, p, ss, look, walking: true, phase: t * 13 + i, facingLeft: seat.dx < _door.dx)));
       }
     }
     for (final l in _leavers) {
@@ -1013,7 +1166,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       final k = ((t - l.t0) / _walkOut).clamp(0.0, 1.0).toDouble();
       final from = _seat(l.table);
       final p = Offset.lerp(from, _door, Curves.easeIn.transform(k))!;
-      final look = Look.seed(l.seed);
+      final look = custLook(l.npc, l.seed);
       items.add(_Item(
         p.dy,
         () => drawPerson(c, p, s, look,
@@ -1031,8 +1184,20 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       final pp = plants[k];
       items.add(_Item(pp.dy, () => _emoji(c, k.isEven ? plantEmoji : '🌿', pp - Offset(0, r * 0.4), r * 1.1)));
     }
-    final catY = h - r * 0.45;
-    items.add(_Item(catY, () => _drawCat(c, w, catY, r, t)));
+    // Đồ trang trí trên sàn (tự sắp xếp)
+    for (final d in widget.decos) {
+      final dt = decoById(d.type);
+      if (dt.wall) continue;
+      final dp = Offset(d.x * w, floorTop + d.y * floorH);
+      items.add(_Item(dp.dy, () => _drawDeco(c, dt, dp, r, t)));
+    }
+    // Thú cưng
+    _updatePets(t, w, h, floorTop, floorH, r);
+    for (final e in _petPos.entries) {
+      final id = e.key;
+      final pp = e.value;
+      items.add(_Item(pp.dy, () => _drawPet(c, id, pp, r, t)));
+    }
 
     String? carry;
     for (final d in widget.counter) {
@@ -1058,6 +1223,8 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     }
 
     _ambientFront(c, w, h, floorTop, style, t, r);
+    _drawLight(c, w, h, t);
+    _drawDiningIncidents(c, w, h, t);
 
     // ---------- Lớp trên cùng: bong bóng, hiệu ứng ----------
     for (var i = 0; i < n; i++) {
@@ -1071,6 +1238,215 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       for (var j = 0; j < 3; j++) {
         final hp = base + Offset((j - 1) * r * 0.7 + sin(t * 5 + j) * 5, -r * 0.5 - k * r * (1.3 + 0.35 * j));
         _emoji(c, j == 1 ? '⭐' : '💖', hp, r * 0.45, alpha: 1 - k);
+      }
+    }
+  }
+
+  void _updatePets(double t, double w, double h, double floorTop, double floorH, double r) {
+    final dt = (t - _lastPT).clamp(0.0, 0.1).toDouble();
+    _lastPT = t;
+    final ids = widget.pets;
+    _petPos.removeWhere((k, _) => !ids.contains(k));
+    // bàn có khách sốt ruột nhất: mèo tới nằm cạnh
+    var catT = -1;
+    var bestF = 2.0;
+    for (var i = 0; i < widget.tables.length && i < _tc.length; i++) {
+      final c = widget.tables[i].c;
+      if (c == null || c.st >= 2) continue;
+      final f = c.pat / c.maxPat;
+      if (f < bestF) {
+        bestF = f;
+        catT = i;
+      }
+    }
+    Incident? rat;
+    for (final x in widget.incidents) {
+      if (x.type == 'rat') rat = x;
+    }
+    for (final id in ids) {
+      Offset target;
+      switch (id) {
+        case 'cat':
+          target = catT >= 0 ? _tc[catT] + Offset(-r * 1.25, r * 0.55) : _wander(t, w, h - r * 0.45, 26, 0).$1;
+          break;
+        case 'dog':
+          target = rat != null ? _incPos(rat) : _wander(t, w, h - r * 1.6, 21, 9).$1;
+          break;
+        case 'hamster':
+          target = Offset(w * 0.765, floorTop + r * 0.55);
+          break;
+        case 'parrot':
+          target = Offset(w * 0.87 - r * 1.3, floorTop + r * 0.25);
+          break;
+        default:
+          target = _wander(t, w, h - r, 30, 5).$1;
+      }
+      final cur = _petPos[id] ?? target;
+      final d = target - cur;
+      final fast = id == 'dog' && rat != null;
+      final step = max(w, 300.0) * (fast ? 0.55 : 0.3) * dt;
+      final nxt = d.distance <= step ? target : cur + d / d.distance * step;
+      if (d.dx.abs() > 1) _petLeft[id] = d.dx < 0;
+      _petMoving[id] = d.distance > 1;
+      _petPos[id] = nxt;
+      if (id == 'cat') _catBeside = catT >= 0 && d.distance <= 1;
+    }
+  }
+
+  void _drawPet(Canvas c, String id, Offset p, double r, double t) {
+    final pt = petById(id);
+    final moving = _petMoving[id] ?? false;
+    final size = id == 'dog' ? r * 1.0 : (id == 'cat' ? r * 0.85 : r * 0.7);
+    c.drawOval(Rect.fromCenter(center: p + Offset(0, size * 0.35), width: size * 0.9, height: size * 0.22), Paint()..color = const Color(0x22000000));
+    if (id == 'hamster') {
+      final cage = RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: r * 1.3, height: r * 1.0), Radius.circular(r * 0.2));
+      c.drawRRect(cage, Paint()..color = const Color(0x33FFFFFF));
+      c.drawRRect(cage, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = const Color(0xFF90A4AE));
+      final wc = p + Offset(r * 0.25, 0);
+      final ring = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = const Color(0xFFB0BEC5);
+      c.drawCircle(wc, r * 0.34, ring);
+      for (var k = 0; k < 3; k++) {
+        final a = t * 8 + k * 2.09;
+        c.drawLine(wc, wc + Offset(cos(a), sin(a)) * r * 0.34, ring);
+      }
+      _emoji(c, pt.emoji, wc + Offset(0, r * 0.1 - sin(t * 16).abs() * 2), size * 0.8);
+    } else if (id == 'parrot') {
+      final perch = Paint()
+        ..color = const Color(0xFF6D4C41)
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+      c.drawLine(p + Offset(-r * 0.5, r * 0.28), p + Offset(r * 0.5, r * 0.28), perch);
+      c.drawLine(p + Offset(0, r * 0.28), p + Offset(0, r * 1.0), perch);
+      final flap = 1 + 0.12 * sin(t * 10).abs();
+      _emoji(c, pt.emoji, p - Offset(0, sin(t * 3).abs() * 3), size * flap);
+    } else {
+      c.save();
+      c.translate(p.dx, p.dy - (moving ? sin(t * 14).abs() * 2 : 0));
+      if (!(_petLeft[id] ?? true)) c.scale(-1, 1);
+      _emoji(c, pt.emoji, Offset.zero, size);
+      c.restore();
+      if (!moving && id == 'cat') {
+        _emoji(c, _catBeside ? '💕' : '💤', p + Offset(size * 0.45, -size * 0.7 - sin(t * 2).abs() * 3), size * 0.4, alpha: 0.85);
+      }
+    }
+    final kh = t - (_petHeartAt[id] ?? -10);
+    if (kh < 1.2) {
+      for (var j = 0; j < 3; j++) {
+        _emoji(c, '💗', p + Offset((j - 1) * size * 0.45 + sin(t * 6 + j) * 3, -size * 0.6 - kh * size * (1 + 0.3 * j)), size * 0.4, alpha: 1 - kh / 1.2);
+      }
+    }
+  }
+
+  void _drawDeco(Canvas c, DecoType dt, Offset p, double r, double t) {
+    final sz = r * dt.size;
+    c.drawOval(Rect.fromCenter(center: p + Offset(0, sz * 0.4), width: sz * 0.9, height: sz * 0.22), Paint()..color = const Color(0x26000000));
+    if (dt.id == 'bar') {
+      final th = themeFor(widget.venueId, widget.style);
+      final body = RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: r * 2.8, height: r * 0.9), Radius.circular(r * 0.15));
+      c.drawRRect(body, Paint()..color = _dk(th.wood, 0.25));
+      c.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromLTWH(body.left - 3, body.top - r * 0.12, body.width + 6, r * 0.22), Radius.circular(r * 0.1)),
+        Paint()..color = _lt(th.wood, 0.25),
+      );
+      const glasses = ['🍸', '🍷', '🥂'];
+      for (var k = 0; k < 3; k++) {
+        _emoji(c, glasses[k], Offset(body.left + body.width * (0.22 + 0.28 * k), body.top - r * 0.35), r * 0.5);
+      }
+      return;
+    }
+    if (dt.id == 'fish') {
+      for (var k = 0; k < 3; k++) {
+        final ph = (t * 0.7 + k / 3) % 1.0;
+        c.drawCircle(p + Offset(sin(ph * 6 + k) * sz * 0.15, -sz * 0.2 - ph * sz * 0.6), 2 + ph * 2, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = _a(const Color(0xFF4FC3F7), 1 - ph));
+      }
+    }
+    _emoji(c, dt.emoji, p - Offset(0, sz * 0.1), sz);
+  }
+
+  void _drawLight(Canvas c, double w, double h, double t) {
+    switch (widget.light) {
+      case 'warm':
+        c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x22FFA726));
+        break;
+      case 'romantic':
+        c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x3A2A0A3A));
+        for (final p in _tc) {
+          c.drawCircle(p, _r * 1.6, Paint()..color = _a(const Color(0xFFFFCC80), 0.10 + 0.03 * sin(t * 3 + p.dx)));
+        }
+        break;
+      case 'disco':
+        const cols = [Color(0xFFFF4081), Color(0xFF40C4FF), Color(0xFFFFEB3B), Color(0xFF69F0AE)];
+        for (var k = 0; k < 4; k++) {
+          final cp = Offset(w * (0.5 + 0.4 * sin(t * 0.9 + k * 1.7)), _floorTop + (h - _floorTop) * (0.5 + 0.4 * cos(t * 0.7 + k * 2.3)));
+          c.drawCircle(cp, _r * 2.2, Paint()..color = _a(cols[k], 0.16));
+        }
+        _emoji(c, '🪩', Offset(w * 0.5, 12), 18);
+        break;
+    }
+  }
+
+  void _drawDiningIncidents(Canvas c, double w, double h, double t) {
+    final r = _r;
+    final fs = max(9.0, r * 0.3);
+    for (final x in widget.incidents) {
+      final it = incidentType(x.type);
+      switch (x.type) {
+        case 'rat':
+          {
+            final p = _incPos(x);
+            c.save();
+            c.translate(p.dx, p.dy - sin(t * 20).abs() * 2);
+            if (sin(t * 0.8 + x.id) > 0) c.scale(-1, 1);
+            _emoji(c, '🐀', Offset.zero, r * 0.85);
+            c.restore();
+            _pill(c, '${it.toolEmoji}×${x.hp}', p - Offset(0, r * 0.85), fs, bg: const Color(0xFFFFEBEE), fg: const Color(0xFFC62828));
+          }
+          break;
+        case 'leak':
+          {
+            final p = _incPos(x);
+            final grow = min(x.age, 20.0) * 0.06;
+            c.drawOval(Rect.fromCenter(center: p, width: r * (1.6 + grow * 2), height: r * (0.55 + grow * 0.7)), Paint()..color = _a(const Color(0xFF4FC3F7), 0.55));
+            c.drawOval(Rect.fromCenter(center: p - Offset(r * 0.2, r * 0.05), width: r * 0.5, height: r * 0.15), Paint()..color = _a(Colors.white, 0.5));
+            c.drawLine(Offset(p.dx - 7, _wallH - 2), Offset(p.dx + 7, _wallH - 2), Paint()
+              ..color = const Color(0xFF546E7A)
+              ..strokeWidth = 4);
+            for (var k = 0; k < 2; k++) {
+              final ph = (t * 1.2 + k * 0.5) % 1.0;
+              c.drawCircle(Offset(p.dx, _wallH + (p.dy - _wallH) * ph), 3, Paint()..color = _a(const Color(0xFF0288D1), 0.8));
+            }
+            _pill(c, '💧 ${it.toolEmoji}×${x.hp}', p - Offset(0, r * 0.7), fs, bg: const Color(0xFFE1F5FE), fg: const Color(0xFF01579B));
+          }
+          break;
+        case 'brawl':
+          {
+            if (x.target >= _tc.length) break;
+            final ct = _tc[x.target];
+            final pulse = 0.5 + 0.5 * sin(t * 10);
+            c.drawOval(
+              Rect.fromCenter(center: ct, width: r * (2.8 + pulse * 0.4), height: r * (1.5 + pulse * 0.2)),
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 3
+                ..color = _a(const Color(0xFFFF1744), 0.5 + 0.5 * pulse),
+            );
+            _emoji(c, '💢', _seat(x.target) + Offset(-r * 0.9, -_s * 0.6), r * 0.6 * (0.9 + 0.2 * pulse));
+            _pill(c, '${it.toolEmoji}×${x.hp}', ct + Offset(0, r * 0.95), fs, bg: const Color(0xFFFFEBEE), fg: const Color(0xFFC62828));
+          }
+          break;
+        case 'power':
+          c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x66000000));
+          _pill(c, '⚡ Mất điện! Đầu bếp bật cầu dao 🔌', Offset(w / 2, _floorTop + 14), 11, bg: const Color(0xFFFFF59D));
+          break;
       }
     }
   }
@@ -1091,14 +1467,16 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       final frac = (cu.pat / cu.maxPat).clamp(0.0, 1.0);
       final mood = cu.st == 2 ? 0 : (frac < 0.35 ? 2 : (frac < 0.6 ? 1 : 0));
       final justServed = t - _serveAt[i] < 0.6;
+      final brawl = widget.incidents.any((x) => x.type == 'brawl' && x.target == i);
+      final shake = brawl ? sin(t * 40) * r * 0.06 : 0.0;
       drawPerson(
         c,
-        _seat(i),
-        _s,
-        Look.seed(_seed[i]),
+        _seat(i) + Offset(shake, 0),
+        cu.npc == 'student' ? _s * 0.82 : _s,
+        custLook(cu.npc, _seed[i]),
         sitting: true,
-        mood: mood,
-        armUp: cu.st == 0 || justServed,
+        mood: brawl ? 2 : mood,
+        armUp: cu.st == 0 || justServed || (brawl && sin(t * 8) > 0),
         chew: cu.st == 2 && !justServed && sin(t * 12) > 0,
         bob: cu.st == 0 ? sin(t * 6).abs() * r * 0.08 : (justServed ? sin(t * 20).abs() * r * 0.1 : 0.0),
       );
@@ -1182,6 +1560,17 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     }
     if (cu == null || t - _arr[i] < _walkIn) return;
 
+    // Khách đặc biệt: bảng tên và câu chuyện khi vừa ngồi xuống
+    final npc = npcById(cu.npc);
+    if (npc != null) {
+      final head = _seat(i) - Offset(0, (cu.npc == 'student' ? _s * 0.82 : _s) * 0.8);
+      _pill(c, '${npc.emoji} ${npc.name}', head, max(9.0, r * 0.28), bg: const Color(0xFFFFF8E1), fg: const Color(0xFF6D4C41));
+      final since = t - _arr[i] - _walkIn;
+      if (since < 4.5) {
+        _speech(c, npc.lines[min(cu.line, npc.lines.length - 1)], head - Offset(0, r * 0.4), max(130.0, r * 4.5), max(10.0, r * 0.3));
+      }
+    }
+
     // Vừa được mang món: vòng sáng + bong bóng 😋
     final ks = t - _serveAt[i];
     if (cu.st == 2) {
@@ -1237,6 +1626,11 @@ class KitchenScene extends StatefulWidget {
   final String chefName;
   final String Function(String) ingEmoji;
   final void Function(int) onStation;
+  final List<Incident> incidents;
+  final String seasonEmoji;
+  final void Function(int)? onIncident;
+  final void Function(int, double)? onHeat; // vặn lửa − / +
+  final void Function(int, String)? onDrop; // kéo nguyên liệu thả vào bếp
   const KitchenScene({
     super.key,
     required this.stations,
@@ -1249,6 +1643,11 @@ class KitchenScene extends StatefulWidget {
     this.burnTime = 7,
     this.chefLook = nguyenLook,
     this.chefName = kNguyen,
+    this.incidents = const [],
+    this.seasonEmoji = '🧂',
+    this.onIncident,
+    this.onHeat,
+    this.onDrop,
   });
 
   @override
@@ -1268,6 +1667,11 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
   List<int> _addedP = [], _mistP = [];
   List<double> _doneAt = [], _sentAt = [];
   List<String> _lastEmoji = [], _sentEmoji = [];
+  List<int> _chopKey = [];
+  List<double> _saltP = [], _heatP = [], _knifeAt = [], _shakeAt = [];
+  final Map<int, String> _incP = {};
+  int _hoverSt = -1; // bếp đang được kéo nguyên liệu tới
+  Rect _fuse = Rect.zero; // hộp cầu dao
 
   @override
   void initState() {
@@ -1304,6 +1708,11 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       _sentAt = List.filled(n, -10.0);
       _lastEmoji = List.filled(n, '');
       _sentEmoji = List.filled(n, '');
+      _chopKey = List.filled(n, 0);
+      _saltP = List.filled(n, 0.0);
+      _heatP = List.filled(n, 0.5);
+      _knifeAt = List.filled(n, -10.0);
+      _shakeAt = List.filled(n, -10.0);
       first = true;
     }
     for (var i = 0; i < n; i++) {
@@ -1328,10 +1737,44 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       _cookP[i] = st[i].cooking;
       _addedP[i] = st[i].added.length;
       _mistP[i] = st[i].mistakes;
+      // thái, nêm, vặn lửa
+      final key = st[i].board.length * 100 + st[i].chopLeft;
+      if (!first && key < _chopKey[i] && (st[i].chopLeft < _chopKey[i] % 100 || st[i].board.length < _chopKey[i] ~/ 100)) {
+        _knifeAt[i] = t;
+        Sound.sfx('chop');
+      }
+      _chopKey[i] = key;
+      if (!first && st[i].salt > _saltP[i] + 0.01) {
+        _shakeAt[i] = t;
+        Sound.sfx('shake');
+      }
+      _saltP[i] = st[i].salt;
+      if (!first && (st[i].heat - _heatP[i]).abs() > 0.12) Sound.sfx('knob', vol: 0.6);
+      _heatP[i] = st[i].heat;
       final tk = st[i].t;
       if (tk != null) _lastEmoji[i] = tk.recipe.emoji;
       _doneP[i] = d;
     }
+    // Âm thanh sự cố trong bếp
+    final now = <int, String>{for (final x in widget.incidents) x.id: x.type};
+    for (final e in now.entries) {
+      if (!_incP.containsKey(e.key) && !first) {
+        if (e.value == 'fire') Sound.sfx('alarm');
+        if (e.value == 'power') Sound.sfx('powerdown');
+      }
+    }
+    for (final e in _incP.entries) {
+      if (!now.containsKey(e.key) && !first && (e.value == 'fire' || e.value == 'power')) Sound.sfx('fixed');
+    }
+    _incP
+      ..clear()
+      ..addAll(now);
+  }
+
+  int _stationAt(double x) {
+    final n = widget.stations.length;
+    if (n == 0 || _size.width <= 0) return -1;
+    return min(max((x / (_size.width / n)).floor(), 0), n - 1);
   }
 
   int get _chefAt {
@@ -1365,18 +1808,61 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
   }
 
   void _tap(TapUpDetails d) {
-    final n = widget.stations.length;
-    if (n == 0 || _size.width <= 0) return;
-    final i = min(max((d.localPosition.dx / (_size.width / n)).floor(), 0), n - 1);
+    final p = d.localPosition;
+    // 1) Hộp cầu dao khi mất điện
+    if (_fuse.inflate(8).contains(p)) {
+      for (final x in widget.incidents) {
+        if (x.type == 'power') {
+          widget.onIncident?.call(x.id);
+          return;
+        }
+      }
+    }
+    final i = _stationAt(p.dx);
+    if (i < 0) return;
     _target = i;
+    // 2) Bếp đang cháy
+    for (final x in widget.incidents) {
+      if (x.type == 'fire' && x.target == i) {
+        widget.onIncident?.call(x.id);
+        return;
+      }
+    }
+    // 3) Núm vặn lửa (đang nấu): nửa trái giảm, nửa phải tăng
+    final s = widget.stations[i];
+    final h = _size.height;
+    if (s.cooking && p.dy > h * 0.36 && p.dy < h * 0.53) {
+      final cellW = _size.width / widget.stations.length;
+      widget.onHeat?.call(i, p.dx < cellW * (i + 0.5) ? -0.2 : 0.2);
+      return;
+    }
+    // 4) Thao tác bếp: nhận đơn / thái / lấy món
     widget.onStation(i);
   }
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapUp: _tap,
-        child: SizedBox.expand(child: CustomPaint(painter: _KitchenPainter(this))),
+  Widget build(BuildContext context) => DragTarget<String>(
+        onMove: (det) {
+          final box = context.findRenderObject() as RenderBox?;
+          if (box == null) return;
+          _hoverSt = _stationAt(box.globalToLocal(det.offset + const Offset(28, 28)).dx);
+        },
+        onLeave: (_) => _hoverSt = -1,
+        onAcceptWithDetails: (det) {
+          final box = context.findRenderObject() as RenderBox?;
+          _hoverSt = -1;
+          if (box == null) return;
+          final i = _stationAt(box.globalToLocal(det.offset + const Offset(28, 28)).dx);
+          if (i >= 0) {
+            _target = i;
+            widget.onDrop?.call(i, det.data);
+          }
+        },
+        builder: (ctx, cand, rej) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: _tap,
+          child: SizedBox.expand(child: CustomPaint(painter: _KitchenPainter(this))),
+        ),
       );
 
   void _paint(Canvas c, Size sz) {
@@ -1442,6 +1928,25 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       stir: stirring ? t * 8 : -1,
       name: widget.chefName,
     );
+
+    if (_hoverSt >= 0 && _hoverSt < n) {
+      final hr = RRect.fromRectAndRadius(Rect.fromLTWH(cellW * _hoverSt + 3, 3, cellW - 6, h - 6), const Radius.circular(14));
+      c.drawRRect(hr, Paint()..color = _a(const Color(0xFF66BB6A), 0.15));
+      c.drawRRect(hr, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = const Color(0xFF66BB6A));
+    }
+
+    // Hộp cầu dao (góc trên phải)
+    final power = widget.incidents.any((x) => x.type == 'power');
+    if (power) c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x8C000000));
+    _fuse = Rect.fromLTWH(w - 44, 4, 38, 30);
+    final blink = power && sin(t * 10) > 0;
+    c.drawRRect(RRect.fromRectAndRadius(_fuse, const Radius.circular(5)), Paint()..color = blink ? const Color(0xFFFF5252) : const Color(0xFF78909C));
+    c.drawRRect(RRect.fromRectAndRadius(_fuse.deflate(3), const Radius.circular(3)), Paint()..color = const Color(0xFF37474F));
+    _emoji(c, '⚡', _fuse.center, 16);
+    if (power) _pill(c, '⚡ Mất điện! Chọn 🔌 rồi chạm cầu dao', Offset(w / 2, h * 0.5), min(13.0, w * 0.035), bg: const Color(0xFFFFF59D));
   }
 
   void _drawStove(Canvas c, int i, double cellW, double h, double t) {
@@ -1473,8 +1978,23 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       RRect.fromRectAndRadius(Rect.fromLTRB(body.left - 2, topY - 4, body.right + 2, topY + h * 0.04), const Radius.circular(4)),
       Paint()..color = const Color(0xFF37474F),
     );
-    for (var k = 0; k < 3; k++) {
-      c.drawCircle(Offset(body.left + body.width * (0.25 + 0.25 * k), topY + h * 0.075), max(2.5, h * 0.018), Paint()..color = const Color(0xFF455A64));
+    if (s.cooking) {
+      // núm vặn lửa: − bên trái, + bên phải
+      final kr = max(9.0, h * 0.045);
+      for (final side in const [-1.0, 1.0]) {
+        final kc = Offset(cx + side * body.width * 0.3, topY + h * 0.075);
+        c.drawCircle(kc, kr, Paint()..color = const Color(0xFF263238));
+        c.drawCircle(kc, kr, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = side < 0 ? const Color(0xFF4FC3F7) : const Color(0xFFFF7043));
+        final lab = _text(side < 0 ? '−' : '+', kr * 1.3, color: Colors.white, bold: true);
+        lab.paint(c, kc - Offset(lab.width / 2, lab.height / 2));
+      }
+    } else {
+      for (var k = 0; k < 3; k++) {
+        c.drawCircle(Offset(body.left + body.width * (0.25 + 0.25 * k), topY + h * 0.075), max(2.5, h * 0.018), Paint()..color = const Color(0xFF455A64));
+      }
     }
     final ov = Rect.fromLTRB(body.left + body.width * 0.12, topY + h * 0.13, body.right - body.width * 0.12, botY - h * 0.04);
     c.drawLine(Offset(ov.left + 6, ov.top - h * 0.025), Offset(ov.right - 6, ov.top - h * 0.025), Paint()
@@ -1493,7 +2013,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       for (var k = -1; k <= 1; k++) {
         final fl = 1 + 0.25 * sin(t * 18 + k * 2.0 + i);
         final fx = cx + k * potW * 0.28;
-        final fh = h * 0.035 * fl;
+        final fh = h * (0.015 + 0.05 * s.heat) * fl; // lửa to nhỏ theo núm vặn
         final flame = Path()
           ..moveTo(fx - fh * 0.5, topY - 1)
           ..quadraticBezierTo(fx, topY - fh * 1.9, fx + fh * 0.5, topY - 1)
@@ -1576,6 +2096,58 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       _emoji(c, _sentEmoji[i], potRect.topCenter - Offset(0, potH * 0.5 + ks * h * 0.35), potH * 1.1 * (1 + ks * 0.4), alpha: 1 - ks / 0.7);
     }
 
+    // Đồng hồ lửa: vùng xanh là lửa chuẩn
+    if (s.cooking) {
+      final g = Rect.fromLTWH(body.left + 3, ov.top, 7, ov.height);
+      c.drawRRect(RRect.fromRectAndRadius(g, const Radius.circular(3)), Paint()..color = const Color(0xFF263238));
+      c.drawRect(Rect.fromLTRB(g.left, g.bottom - g.height * 0.75, g.right, g.bottom - g.height * 0.3), Paint()..color = _a(const Color(0xFF66BB6A), 0.6));
+      final hy = g.bottom - g.height * s.heat;
+      final Color hc = s.heat < 0.3 ? const Color(0xFF4FC3F7) : (s.heat <= 0.75 ? const Color(0xFF66BB6A) : const Color(0xFFFF5252));
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(g.left - 2, hy - 2.5, g.right + 2, hy + 2.5), const Radius.circular(2)), Paint()..color = hc);
+    }
+
+    // Thớt: chạm bếp để thái từng nhát
+    if (s.chopping) {
+      final bd = Rect.fromCenter(center: Offset(cx + 4, ov.center.dy + h * 0.01), width: ov.width * 0.95, height: ov.height * 0.62);
+      c.drawRRect(RRect.fromRectAndRadius(bd, const Radius.circular(8)), Paint()..color = const Color(0xFFBC8A5F));
+      c.drawRRect(RRect.fromRectAndRadius(bd.deflate(3), const Radius.circular(6)), Paint()..color = const Color(0xFFD7A86E));
+      final item = s.board.first;
+      final isz = min(bd.height * 0.7, bd.width * 0.35);
+      final cutTotal = max(1, s.chopLeft);
+      _emoji(c, widget.ingEmoji(item), Offset(bd.left + bd.width * 0.3, bd.center.dy), isz);
+      // miếng đã thái
+      for (var k = 0; k < 3 - min(3, cutTotal - 1); k++) {
+        c.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(bd.left + bd.width * (0.62 + 0.1 * k), bd.center.dy + isz * 0.25), width: isz * 0.22, height: isz * 0.14), const Radius.circular(2)),
+          Paint()..color = const Color(0xFFE57373),
+        );
+      }
+      final kn = t - _knifeAt[i];
+      final down = kn < 0.12;
+      _emoji(c, '🔪', Offset(bd.left + bd.width * 0.55, bd.center.dy - (down ? isz * 0.05 : isz * 0.45 + sin(t * 4).abs() * 3)), isz * 0.8);
+      _pill(c, '🔪 Chạm để thái ×${s.chopLeft}${s.board.length > 1 ? '  (+${s.board.length - 1})' : ''}', Offset(cx, bd.bottom + fs * 0.6), fs * 0.7, bg: const Color(0xFFFFF3E0));
+    }
+
+    // Cháy bếp
+    for (final x in widget.incidents) {
+      if (x.type != 'fire' || x.target != i) continue;
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(x0 + 2, h * 0.12, x0 + cellW - 2, botY), const Radius.circular(12)), Paint()..color = _a(const Color(0xFFFF6D00), 0.22 + 0.1 * sin(t * 12)));
+      for (var k = 0; k < 5; k++) {
+        final fx = x0 + cellW * (0.15 + 0.175 * k);
+        final fh = h * (0.18 + 0.08 * sin(t * 14 + k * 1.7));
+        final path = Path()
+          ..moveTo(fx - cellW * 0.09, topY + h * 0.05)
+          ..quadraticBezierTo(fx + sin(t * 9 + k) * 6, topY - fh, fx + cellW * 0.09, topY + h * 0.05)
+          ..close();
+        c.drawPath(path, Paint()..color = k.isEven ? const Color(0xFFFF6D00) : const Color(0xFFFFAB00));
+      }
+      for (var k = 0; k < 3; k++) {
+        final ph = (t * 0.5 + k / 3) % 1.0;
+        c.drawCircle(Offset(cx + sin(ph * 5 + k) * cellW * 0.2, topY - h * 0.15 - ph * h * 0.2), cellW * (0.08 + 0.1 * ph), Paint()..color = _a(const Color(0xFF424242), 0.6 * (1 - ph)));
+      }
+      _pill(c, '🔥 CHÁY! 🧯×${x.hp}', Offset(cx, topY + h * 0.2), fs * 0.85, bg: const Color(0xFFFFCDD2), fg: const Color(0xFFB71C1C));
+    }
+
     // Thông tin đơn
     if (tk == null) {
       final b = widget.hasOrders ? sin(t * 6).abs() * 3 : 0.0;
@@ -1596,13 +2168,27 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       for (var k = 0; k < ings.length; k++) {
         final ip = Offset(cx + (k - (ings.length - 1) / 2) * isz * 1.15, h * 0.175);
         final got = s.added.contains(ings[k]);
-        c.drawCircle(ip, isz * 0.58, Paint()..color = got ? const Color(0xFFC8E6C9) : Colors.white);
+        final onBoard = s.board.contains(ings[k]);
+        c.drawCircle(ip, isz * 0.58, Paint()..color = got ? const Color(0xFFC8E6C9) : (onBoard ? const Color(0xFFFFE082) : Colors.white));
         c.drawCircle(ip, isz * 0.58, Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1
           ..color = got ? Colors.green : const Color(0xFFBDBDBD));
         _emoji(c, widget.ingEmoji(ings[k]), ip, isz * 0.75, alpha: got ? 0.35 : 1);
       }
+    }
+    // Thanh nêm nếm: vùng xanh là vừa miệng (mỗi lần rắc không đều tay)
+    if (!s.burnt) {
+      const maxSalt = 5.0;
+      final mb = Rect.fromCenter(center: Offset(cx + fs * 0.6, h * 0.255), width: cellW * 0.62, height: max(5.0, h * 0.022));
+      c.drawRRect(RRect.fromRectAndRadius(mb, const Radius.circular(3)), Paint()..color = const Color(0xFFECEFF1));
+      final z0 = ((s.saltTarget - s.tol) / maxSalt).clamp(0.0, 1.0).toDouble();
+      final z1 = ((s.saltTarget + s.tol) / maxSalt).clamp(0.0, 1.0).toDouble();
+      c.drawRect(Rect.fromLTRB(mb.left + mb.width * z0, mb.top, mb.left + mb.width * z1, mb.bottom), Paint()..color = _a(const Color(0xFF66BB6A), 0.7));
+      final sx = mb.left + mb.width * (s.salt / maxSalt).clamp(0.0, 1.0).toDouble();
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(sx, mb.center.dy), width: 4, height: mb.height + 6), const Radius.circular(2)), Paint()..color = const Color(0xFF3E2723));
+      final shaking = t - _shakeAt[i] < 0.3;
+      _emoji(c, widget.seasonEmoji, Offset(mb.left - fs * 0.8, mb.center.dy - (shaking ? sin(t * 40) * 3 : 0)), fs * 1.0);
     }
 
     // Trạng thái trên cửa lò
@@ -1614,11 +2200,14 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     } else if (s.cooking) {
       label = '⏳ ${max(0.0, s.need - s.prog).ceil()}s';
       bg = const Color(0xFFFFE0B2);
+    } else if (s.chopping) {
+      label = '';
+      bg = Colors.white;
     } else {
-      label = 'Chọn nguyên liệu';
+      label = 'Kéo / chạm nguyên liệu';
       bg = Colors.white;
     }
-    _pill(c, label, Offset(cx, ov.center.dy - h * 0.02), fs * 0.75, bg: bg);
+    if (label.isNotEmpty) _pill(c, label, Offset(cx + 4, ov.center.dy - h * 0.02), fs * 0.72, bg: bg);
 
     final bar = Rect.fromLTWH(ov.left + 5, ov.bottom - 9, ov.width - 10, 5);
     double? frac;
@@ -1833,4 +2422,257 @@ class _CouplePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CouplePainter oldDelegate) => true;
+}
+
+// =====================================================================
+//  CHÂN DUNG NHÂN VẬT (màn chọn chủ quán)
+// =====================================================================
+class PersonAvatar extends StatelessWidget {
+  final Look look;
+  final String role, name;
+  final double height;
+  const PersonAvatar({super.key, required this.look, required this.role, required this.name, this.height = 150});
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: height * 0.8,
+        height: height,
+        child: CustomPaint(painter: _AvatarPainter(look, role, name)),
+      );
+}
+
+class _AvatarPainter extends CustomPainter {
+  final Look look;
+  final String role, name;
+  _AvatarPainter(this.look, this.role, this.name);
+  @override
+  void paint(Canvas c, Size sz) => drawPerson(c, Offset(sz.width / 2, sz.height * 0.97), sz.height * 0.74, look, role: role, name: name);
+  @override
+  bool shouldRepaint(covariant _AvatarPainter oldDelegate) => oldDelegate.look != look || oldDelegate.name != name;
+}
+
+// =====================================================================
+//  BỐ TRÍ QUÁN: kéo thả bàn ghế và đồ trang trí tự do
+// =====================================================================
+class LayoutEditor extends StatefulWidget {
+  final int tableCount;
+  final List<Offset?> tablePos;
+  final List<Deco> decos;
+  final String venueId, style, light;
+  final void Function(List<Offset?> tablePos, List<Deco> decos) onChanged;
+  final void Function(int decoIndex)? onRemoveDeco;
+  const LayoutEditor({
+    super.key,
+    required this.tableCount,
+    required this.tablePos,
+    required this.decos,
+    required this.venueId,
+    required this.style,
+    required this.light,
+    required this.onChanged,
+    this.onRemoveDeco,
+  });
+  @override
+  State<LayoutEditor> createState() => _LayoutEditorState();
+}
+
+class _LayoutEditorState extends State<LayoutEditor> with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  final _clock = ValueNotifier<double>(0);
+  late List<Offset> _pos;
+  int _drag = -1; // >= 0: bàn; <= -2: đồ trang trí số -(_drag + 2)
+  Size _size = Size.zero;
+  double _r = 24, _wallH = 70, _floorTop = 76;
+
+  @override
+  void initState() {
+    super.initState();
+    _initPos();
+    _ticker = createTicker((e) => _clock.value = e.inMicroseconds / 1e6)..start();
+  }
+
+  @override
+  void didUpdateWidget(covariant LayoutEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tableCount != widget.tableCount || oldWidget.tablePos != widget.tablePos) _initPos();
+  }
+
+  void _initPos() {
+    final n = widget.tableCount;
+    final cols = n <= 4 ? max(n, 1) : 4;
+    final rows = max(1, (n / cols).ceil());
+    _pos = [
+      for (var i = 0; i < n; i++)
+        (i < widget.tablePos.length ? widget.tablePos[i] : null) ?? Offset((i % cols + 0.5) / cols, ((i ~/ cols) + 0.62) / rows)
+    ];
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _clock.dispose();
+    super.dispose();
+  }
+
+  double get _floorH => _size.height - _floorTop;
+  Offset _px(Offset rel) => Offset(rel.dx * _size.width, _floorTop + rel.dy * _floorH);
+  Offset _decoPx(Deco d) => decoById(d.type).wall ? Offset(d.x * _size.width, _wallH * 0.17) : _px(Offset(d.x, d.y));
+
+  int _hitTest(Offset p) {
+    for (var k = widget.decos.length - 1; k >= 0; k--) {
+      final d = widget.decos[k];
+      final rad = decoById(d.type).wall ? _wallH * 0.22 : _r * max(0.9, decoById(d.type).size * 0.8);
+      if ((p - _decoPx(d)).distance < rad) return -(k + 2);
+    }
+    for (var i = _pos.length - 1; i >= 0; i--) {
+      if ((p - (_px(_pos[i]) - Offset(0, _r * 0.4))).distance < _r * 1.4) return i;
+    }
+    return -1;
+  }
+
+  void _emit() {
+    final out = List<Offset?>.filled(12, null);
+    for (var i = 0; i < _pos.length && i < 12; i++) {
+      out[i] = _pos[i];
+    }
+    widget.onChanged(out, widget.decos);
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (d) => _drag = _hitTest(d.localPosition),
+        onPanUpdate: (d) {
+          if (_drag == -1 || _size == Size.zero) return;
+          final dx = d.delta.dx / _size.width, dy = d.delta.dy / max(1.0, _floorH);
+          if (_drag >= 0) {
+            final o = _pos[_drag];
+            _pos[_drag] = Offset((o.dx + dx).clamp(0.06, 0.94).toDouble(), (o.dy + dy).clamp(0.08, 0.95).toDouble());
+          } else {
+            final dd = widget.decos[-(_drag + 2)];
+            dd.x = (dd.x + dx).clamp(0.04, 0.96).toDouble();
+            if (!decoById(dd.type).wall) dd.y = (dd.y + dy).clamp(0.04, 0.97).toDouble();
+          }
+        },
+        onPanEnd: (_) {
+          if (_drag != -1) _emit();
+          _drag = -1;
+        },
+        onLongPressStart: (d) {
+          final k = _hitTest(d.localPosition);
+          if (k <= -2) widget.onRemoveDeco?.call(-(k + 2));
+        },
+        child: SizedBox.expand(child: CustomPaint(painter: _EditorPainter(this))),
+      );
+
+  void _paint(Canvas c, Size sz) {
+    final w = sz.width, h = sz.height;
+    if (w < 40 || h < 40) return;
+    _size = sz;
+    final t = _clock.value;
+    final th = themeFor(widget.venueId, widget.style);
+    _wallH = max(70.0, h * 0.2);
+    _floorTop = _wallH + 6;
+    final n = max(1, _pos.length);
+    final cols = n <= 4 ? n : 4;
+    final rows = max(1, (n / cols).ceil());
+    _r = min(min(w / cols * 0.27, _floorH / rows * 0.24), 40.0);
+    final r = _r;
+
+    // sàn + tường
+    final tile = max(24.0, w / 9);
+    c.drawRect(Rect.fromLTWH(0, _wallH, w, h - _wallH), Paint()..color = th.floorA);
+    final pb = Paint()..color = th.floorB;
+    for (var y = 0; _wallH + y * tile < h; y++) {
+      for (var x = 0; x * tile < w; x++) {
+        if ((x + y).isOdd) c.drawRect(Rect.fromLTWH(x * tile, _wallH + y * tile, tile, tile), pb);
+      }
+    }
+    c.drawRect(Rect.fromLTWH(0, 0, w, _wallH), Paint()..color = th.wall);
+    _ambientBack(c, w, _wallH * 0.22, widget.style, t, th);
+    c.drawRect(Rect.fromLTWH(0, _wallH - 4, w, 5), Paint()..color = th.trim);
+    final hint = _text('Kéo để di chuyển • nhấn giữ đồ trang trí để cất đi', 11, color: _a(Colors.white, 0.9), bold: true);
+    hint.paint(c, Offset(w / 2 - hint.width / 2, _wallH * 0.55));
+
+    // vẽ theo chiều sâu
+    final items = <_Item>[];
+    for (var i = 0; i < _pos.length; i++) {
+      final ct = _px(_pos[i]);
+      items.add(_Item(ct.dy, () {
+        final sel = _drag == i;
+        final chair = RRect.fromRectAndRadius(Rect.fromCenter(center: ct + Offset(0, -r * 0.95), width: r * 1.3, height: r * 1.3), Radius.circular(r * 0.25));
+        c.drawRRect(chair, Paint()..color = _dk(th.wood, 0.15));
+        c.drawRRect(chair.deflate(r * 0.12), Paint()..color = _lt(th.accent, 0.15));
+        final top = Rect.fromCenter(center: ct, width: r * 2.3, height: r * 1.15);
+        c.drawOval(top.shift(Offset(0, r * 0.14)), Paint()..color = _dk(th.wood, 0.2));
+        c.drawOval(top, Paint()..color = th.cloth);
+        if (sel) {
+          c.drawOval(top.inflate(4), Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3
+            ..color = const Color(0xFF42A5F5));
+        }
+        final lab = _text('${i + 1}', r * 0.45, color: _dk(th.wood, 0.4), bold: true);
+        lab.paint(c, ct - Offset(lab.width / 2, lab.height / 2));
+      }));
+    }
+    for (var k = 0; k < widget.decos.length; k++) {
+      final d = widget.decos[k];
+      final dt = decoById(d.type);
+      final p = _decoPx(d);
+      final sel = _drag == -(k + 2);
+      if (dt.wall) {
+        _emoji(c, dt.emoji, p, _wallH * 0.26);
+        if (sel) c.drawCircle(p, _wallH * 0.2, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = const Color(0xFF42A5F5));
+        continue;
+      }
+      items.add(_Item(p.dy, () {
+        final sz2 = r * dt.size;
+        c.drawOval(Rect.fromCenter(center: p + Offset(0, sz2 * 0.4), width: sz2 * 0.9, height: sz2 * 0.22), Paint()..color = const Color(0x26000000));
+        if (dt.id == 'bar') {
+          final body = RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: r * 2.8, height: r * 0.9), Radius.circular(r * 0.15));
+          c.drawRRect(body, Paint()..color = _dk(th.wood, 0.25));
+          _emoji(c, '🍸', p - Offset(0, r * 0.6), r * 0.55);
+        } else {
+          _emoji(c, dt.emoji, p - Offset(0, sz2 * 0.1), sz2);
+        }
+        if (sel) c.drawCircle(p, sz2 * 0.7, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = const Color(0xFF42A5F5));
+      }));
+    }
+    items.sort((a, b) => a.y.compareTo(b.y));
+    for (final it in items) {
+      it.draw();
+    }
+
+    // xem trước ánh sáng
+    switch (widget.light) {
+      case 'warm':
+        c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x22FFA726));
+        break;
+      case 'romantic':
+        c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x3A2A0A3A));
+        break;
+      case 'disco':
+        const cols2 = [Color(0xFFFF4081), Color(0xFF40C4FF), Color(0xFFFFEB3B), Color(0xFF69F0AE)];
+        for (var k = 0; k < 4; k++) {
+          final cp = Offset(w * (0.5 + 0.4 * sin(t * 0.9 + k * 1.7)), _floorTop + _floorH * (0.5 + 0.4 * cos(t * 0.7 + k * 2.3)));
+          c.drawCircle(cp, r * 2.2, Paint()..color = _a(cols2[k], 0.16));
+        }
+        break;
+    }
+  }
+}
+
+class _EditorPainter extends CustomPainter {
+  final _LayoutEditorState st;
+  _EditorPainter(this.st) : super(repaint: st._clock);
+  @override
+  void paint(Canvas canvas, Size size) => st._paint(canvas, size);
+  @override
+  bool shouldRepaint(covariant _EditorPainter oldDelegate) => true;
 }
