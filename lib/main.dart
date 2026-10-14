@@ -1441,13 +1441,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             Text(guestJoined ? '✅ Hàng xóm đã vào phòng!' : '⏳ Đang chờ hàng xóm nhập mã...', style: const TextStyle(fontSize: 16)),
             Text(netStatus, style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 16),
-            bigButton(guestJoined ? '▶ Bắt đầu ngày $day' : '▶ Chơi thử 1 mình (ngày $day)', startDay, color: guestJoined ? null : Colors.orange.shade700),
-            if (!guestJoined)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
-                child: Text('Chơi thử: bạn lo cả bếp lẫn sảnh. Hàng xóm vẫn có thể nhập mã vào phòng bất cứ lúc nào.',
-                    textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ),
+            bigButton('▶ Bắt đầu ngày $day', guestJoined ? startDay : null),
             bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
             bigButton('⬅ Đóng phòng', () => leaveRoom(), color: Colors.grey),
           ]),
@@ -1577,7 +1571,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// Thanh điểm của đối thủ (thi đấu)
   Widget oppBar() {
     final lead = served - oppServed;
-    final st = (mode == 'host' && !guestJoined) ? 'chưa vào phòng' : (peerLost ? 'mất kết nối' : (oppScr == 'end' ? 'đã xong ngày' : 'đang chơi'));
+    final st = peerLost ? 'mất kết nối' : (oppScr == 'end' ? 'đã xong ngày' : 'đang chơi');
     return Container(
       width: double.infinity,
       color: lead > 0 ? Colors.green.shade700 : (lead < 0 ? Colors.red.shade700 : Colors.blueGrey.shade700),
@@ -1592,9 +1586,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget playScreen() {
     // 1 máy hoặc thi đấu: một người lo cả bếp lẫn sảnh.
     // Bếp ở trên, sảnh ở dưới, cùng một hướng nhìn: ô "Quầy ra món" của sảnh nằm sát bếp.
-    // Chủ phòng chơi thử khi chưa có ai vào: cũng hiện cả bếp lẫn sảnh.
     Widget col;
-    if (mode == 'local' || race || (mode == 'host' && !guestJoined)) {
+    if (mode == 'local' || race) {
       col = Column(children: [
         hud(race ? '🏁 THI ĐẤU' : '🍽️ $chefName & $waiterName'),
         if (race) oppBar(),
@@ -2056,9 +2049,6 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   // --- Kết thúc ngày ---
   Widget raceResult() {
-    if (mode == 'host' && !guestJoined) {
-      return const Text('🧪 Chơi thử một mình – chưa có đối thủ', style: TextStyle(fontSize: 15));
-    }
     if (oppScr != 'end') {
       return const Text('⏳ Đang chờ hàng xóm phục vụ nốt khách...', style: TextStyle(fontSize: 15));
     }
