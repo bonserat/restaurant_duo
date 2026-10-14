@@ -11,6 +11,10 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.2.0
   supabase_flutter: ^2.5.0
+  audioplayers: ^6.1.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sfx/
+    - assets/music/

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'models.dart';
+import 'sound.dart';
 
 // =====================================================================
 //  TIỆN ÍCH VẼ
@@ -775,10 +776,12 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (occ && !_occ[i]) {
         _seed[i] = ++_seedN * 7919 + i * 31;
         _arr[i] = first ? -10.0 : _t;
+        if (!first) Sound.sfx('door', vol: 0.55);
       } else if (!occ && _occ[i] && !first) {
         final happy = tb[i].dirty; // được phục vụ xong thì bàn bẩn
         _leavers.add(_Leaver(i, _seed[i], _t, happy));
         if (happy) _coins.add(_Coin(i, _t));
+        Sound.sfx(happy ? 'coin' : 'angry');
       }
       _occ[i] = occ;
 
@@ -786,11 +789,16 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (!first && _dirtyP[i] && !dirty) {
         _cleanAt[i] = _t; // vừa dọn bàn
         _wipeUntil = _t + 0.7;
+        Sound.sfx('clean');
       }
       _dirtyP[i] = dirty;
 
       final stv = tb[i].c?.st ?? -1;
-      if (!first && _stP[i] == 1 && stv == 2) _serveAt[i] = _t; // vừa mang món ra
+      if (!first && _stP[i] == 1 && stv == 2) {
+        _serveAt[i] = _t; // vừa mang món ra
+        Sound.sfx('serve');
+      }
+      if (!first && _stP[i] == 0 && stv == 1) Sound.sfx('order');
       _stP[i] = stv;
     }
   }
@@ -1256,7 +1264,8 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
   int _target = 0;
   Size _size = Size.zero;
   // Theo dõi để chạy hoạt cảnh "nấu xong" và "mang ra quầy"
-  List<bool> _doneP = [];
+  List<bool> _doneP = [], _burntP = [], _cookP = [];
+  List<int> _addedP = [], _mistP = [];
   List<double> _doneAt = [], _sentAt = [];
   List<String> _lastEmoji = [], _sentEmoji = [];
 
@@ -1287,6 +1296,10 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     final t = _clock.value;
     if (_doneP.length != n) {
       _doneP = List.filled(n, false);
+      _burntP = List.filled(n, false);
+      _cookP = List.filled(n, false);
+      _addedP = List.filled(n, 0);
+      _mistP = List.filled(n, 0);
       _doneAt = List.filled(n, -10.0);
       _sentAt = List.filled(n, -10.0);
       _lastEmoji = List.filled(n, '');
@@ -1298,11 +1311,23 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       if (!first && d && !_doneP[i]) {
         _doneAt[i] = t;
         _cheerUntil = t + 0.9;
+        Sound.sfx('ding');
       }
       if (!first && _doneP[i] && st[i].t == null) {
         _sentAt[i] = t;
         _sentEmoji[i] = _lastEmoji[i];
+        Sound.sfx('whoosh', vol: 0.8);
       }
+      if (!first) {
+        if (st[i].burnt && !_burntP[i]) Sound.sfx('burn');
+        if (st[i].cooking && !_cookP[i]) Sound.sfx('sizzle', vol: 0.7);
+        if (st[i].added.length > _addedP[i]) Sound.sfx('plop');
+        if (st[i].mistakes > _mistP[i]) Sound.sfx('wrong');
+      }
+      _burntP[i] = st[i].burnt;
+      _cookP[i] = st[i].cooking;
+      _addedP[i] = st[i].added.length;
+      _mistP[i] = st[i].mistakes;
       final tk = st[i].t;
       if (tk != null) _lastEmoji[i] = tk.recipe.emoji;
       _doneP[i] = d;
@@ -1630,7 +1655,8 @@ const _confColors = [Color(0xFFFF5252), Color(0xFFFFD740), Color(0xFF69F0AE), Co
 class ConfettiLayer extends StatefulWidget {
   final double duration;
   final bool fireworks;
-  const ConfettiLayer({super.key, this.duration = 0, this.fireworks = true});
+  final bool sound;
+  const ConfettiLayer({super.key, this.duration = 0, this.fireworks = true, this.sound = true});
   @override
   State<ConfettiLayer> createState() => _ConfettiLayerState();
 }
@@ -1638,12 +1664,19 @@ class ConfettiLayer extends StatefulWidget {
 class _ConfettiLayerState extends State<ConfettiLayer> with SingleTickerProviderStateMixin {
   late final Ticker _ticker;
   final _clock = ValueNotifier<double>(0);
+  int _boom = -1;
 
   @override
   void initState() {
     super.initState();
     _ticker = createTicker((e) {
       _clock.value = e.inMicroseconds / 1e6;
+      // mỗi quả pháo hoa nổ một tiếng (chỉ ~8 quả đầu cho đỡ ồn)
+      final k = (_clock.value / 0.7).floor();
+      if (widget.fireworks && widget.sound && k != _boom && k < 8) {
+        _boom = k;
+        Sound.sfx('firework', vol: 0.45);
+      }
       if (widget.duration > 0 && _clock.value > widget.duration + 1.2) _ticker.stop();
     })
       ..start();

@@ -10,6 +10,7 @@ import 'data.dart';
 import 'models.dart';
 import 'net.dart';
 import 'scene.dart';
+import 'sound.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -19,6 +20,7 @@ Future<void> main() async {
   if (onlineConfigured) {
     await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseAnonKey);
   }
+  await Sound.init();
   runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: GamePage()));
 }
 
@@ -57,6 +59,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool hostCast = false;
   // Hiệu ứng ăn mừng khi đạt mục tiêu giữa ván
   bool goalHit = false;
+  bool resultPlayed = false;
   DateTime? goalBurstAt;
   int goalBurstKey = 0;
 
@@ -96,6 +99,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// Khách trong chế độ hợp tác: chỉ hiển thị, mọi thao tác gửi lên chủ phòng
   bool get remote => mode == 'guest' && gameType == 'coop';
   bool get race => mode != 'local' && gameType == 'race';
+  /// Thi đấu có đối thủ thật (khách luôn có chủ phòng; chủ phòng cần khách đã vào)
+  bool get hasOpp => race && (mode == 'guest' || guestJoined);
   String get shopBack => mode == 'host' ? 'lobby' : (mode == 'guest' ? 'wait' : 'menu');
   bool get peerLost {
     if (mode == 'local') return false;
@@ -114,8 +119,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Thoát ra màn hình chính / tắt app → lưu ngay
-    if (state != AppLifecycleState.resumed) save();
+    // Thoát ra màn hình chính / tắt app → lưu ngay, tạm dừng nhạc
+    if (state == AppLifecycleState.resumed) {
+      Sound.resume();
+    } else {
+      save();
+      Sound.pause();
+    }
   }
 
   @override
@@ -143,6 +153,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       style = m['style'] ?? 'classic';
       styles = Set<String>.from(m['styles'] ?? ['classic']);
       ngocAnhChef = m['cast'] == true;
+      Sound.setEnabled(m['sound'] != false);
     });
   }
 
@@ -157,7 +168,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       v0 = bk[2] as String;
     }
     final p = await SharedPreferences.getInstance();
-    await p.setString('save', jsonEncode({'money': m0, 'day': d0, 'lv': lv, 'recipes': recipes.toList(), 'owned': owned.toList(), 'venue': v0, 'style': style, 'styles': styles.toList(), 'cast': ngocAnhChef}));
+    await p.setString('save', jsonEncode({'money': m0, 'day': d0, 'lv': lv, 'recipes': recipes.toList(), 'owned': owned.toList(), 'venue': v0, 'style': style, 'styles': styles.toList(), 'cast': ngocAnhChef, 'sound': Sound.enabled}));
   }
 
   void say(String m) {
@@ -232,9 +243,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         bk[1] = (bk[1] as int) + 1;
         reward = true;
       }
+      if (scr == 'play' && screen != 'play') resultPlayed = false;
       screen = (scr == 'play' || scr == 'end') ? scr : 'wait';
     });
     checkGoal();
+    if (screen == 'end') playResult();
     if (reward) save();
   }
 
@@ -242,6 +255,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     oppServed = (m['sv'] as num?)?.toInt() ?? 0;
     oppEarned = (m['ea'] as num?)?.toInt() ?? 0;
     oppScr = m['scr'] as String? ?? 'wait';
+    playResult();
   }
 
   void onNet(Map<String, dynamic> m) {
@@ -466,6 +480,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     timer?.cancel();
     timer = Timer.periodic(const Duration(milliseconds: 100), (_) => tick(0.1));
     paused = false;
+    resultPlayed = false;
     setState(() => screen = 'play');
     if (race) {
       oppServed = 0;
@@ -484,6 +499,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     day++;
     save();
     setState(() => screen = 'end');
+    playResult();
     if (race) {
       net.send(raceStatus());
     } else if (mode == 'host') {
@@ -577,7 +593,23 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       goalHit = true;
       goalBurstAt = DateTime.now();
       goalBurstKey++;
+      Sound.sfx('goal');
     }
+  }
+
+  /// Nhạc thắng / thua khi hết ngày (thi đấu: chờ biết kết quả của đối thủ)
+  void playResult() {
+    if (resultPlayed || screen != 'end') return;
+    bool win;
+    if (hasOpp) {
+      if (oppScr != 'end') return;
+      final diff = served != oppServed ? served - oppServed : earned - oppEarned;
+      win = diff >= 0;
+    } else {
+      win = earned >= goalFor(day - 1);
+    }
+    resultPlayed = true;
+    Sound.sfx(win ? 'win' : 'lose');
   }
 
   void finishCustomer(TableS t, Cust c) {
@@ -673,6 +705,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   // ---------- Thao tác từ giao diện (tự chọn: chạy tại chỗ hoặc gửi lên host) ----------
   void doTable(int i) {
     final waiting = i < tables.length && tables[i].c?.st == 1;
+    if (waiting && selDishId != null && tables[i].c?.ticketId != selDishId) Sound.sfx('wrong');
     if (remote) {
       net.send({'t': 'act', 'a': 'table', 'i': i, 'd': selDishId});
     } else {
@@ -703,7 +736,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  void onDish(Dish d) => setState(() => selDishId = selDishId == d.ticketId ? null : d.ticketId);
+  void onDish(Dish d) {
+    Sound.sfx('tap');
+    setState(() => selDishId = selDishId == d.ticketId ? null : d.ticketId);
+  }
 
   bool pay(int cost) {
     if (money < cost) {
@@ -719,6 +755,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   // =====================================================================
   @override
   Widget build(BuildContext context) {
+    // Đang chơi: nhạc theo hoạt cảnh; các màn khác: nhạc menu
+    Sound.music(screen == 'play' ? styleNow : 'menu');
     Widget body;
     switch (screen) {
       case 'create':
@@ -781,7 +819,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               textStyle: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            onPressed: onTap,
+            onPressed: onTap == null
+                ? null
+                : () {
+                    Sound.sfx('tap');
+                    onTap?.call();
+                  },
             child: Text(text, style: const TextStyle(fontSize: 17)),
           ),
         ),
@@ -813,7 +856,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget menuScreen() => Center(
         child: SingleChildScrollView(
           child: Column(children: [
-            const SizedBox(height: 12),
+            Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.all(8), child: soundBtn(light: false))),
             const Text('🍽️', style: TextStyle(fontSize: 64)),
             const Text('Nhà Hàng Đôi', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
             const Text('của $kNguyen 👨 & $kNgocAnh 👩', style: TextStyle(fontSize: 16, color: Colors.deepOrange, fontWeight: FontWeight.w600)),
@@ -977,6 +1020,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       );
 
   // --- Màn chơi ---
+  Widget soundBtn({bool light = true}) => InkWell(
+        onTap: () {
+          setState(() => Sound.setEnabled(!Sound.enabled));
+          save();
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(color: light ? Colors.white24 : Colors.black12, shape: BoxShape.circle),
+          child: Icon(Sound.enabled ? Icons.volume_up : Icons.volume_off, color: light ? Colors.white : Colors.brown, size: 19),
+        ),
+      );
+
   Widget _chip(String t, {Color? color}) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
         decoration: BoxDecoration(color: color ?? Colors.white24, borderRadius: BorderRadius.circular(10)),
@@ -999,6 +1056,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 if (race) _chip('🍽️ $served món', color: Colors.blue.shade600),
               ]),
             ),
+            soundBtn(),
+            const SizedBox(width: 4),
             // Nút thoát ván
             InkWell(
               onTap: confirmExit,
@@ -1240,11 +1299,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final reached = earned >= prevGoal;
     final isGuest = mode == 'guest';
     final bk = _bk;
-    final raceDone = race && guestJoined && oppScr == 'end';
+    final raceDone = hasOpp && oppScr == 'end';
     final raceDiff = served != oppServed ? served - oppServed : earned - oppEarned;
     // Thắng: thi đấu thì phải hơn hàng xóm, còn lại là đạt mục tiêu ngày
-    final win = raceDone ? raceDiff > 0 : (!race || !guestJoined) && reached;
-    final sad = raceDone ? raceDiff < 0 : (!race || !guestJoined) && !reached;
+    final win = raceDone ? raceDiff > 0 : !hasOpp && reached;
+    final sad = raceDone ? raceDiff < 0 : !hasOpp && !reached;
     final content = Center(
       child: SingleChildScrollView(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -1275,8 +1334,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ] else ...[
             bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
             bigButton(
-              race && guestJoined && oppScr == 'play' && !peerLost ? '⏳ Chờ hàng xóm xong ngày' : '▶ Ngày tiếp theo',
-              race && guestJoined && oppScr == 'play' && !peerLost ? null : startDay,
+              hasOpp && oppScr == 'play' && !peerLost ? '⏳ Chờ hàng xóm xong ngày' : '▶ Ngày tiếp theo',
+              hasOpp && oppScr == 'play' && !peerLost ? null : startDay,
             ),
           ],
           bigButton(mode == 'local' ? '⬅ Về menu' : '⬅ Rời phòng', () {
