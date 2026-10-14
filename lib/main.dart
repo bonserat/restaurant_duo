@@ -53,6 +53,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   List<dynamic>? _bk; // sao lưu dữ liệu của khách khi vào phòng người khác
   int tickN = 0;
   int hostDecor = 0; // cấp trang trí của chủ phòng (để khách thấy đúng cây cảnh)
+  String hostStyle = 'classic';
+  bool hostCast = false;
+  // Hiệu ứng ăn mừng khi đạt mục tiêu giữa ván
+  bool goalHit = false;
+  DateTime? goalBurstAt;
+  int goalBurstKey = 0;
 
   // --- Lưu trữ ---
   int money = 0, day = 1;
@@ -60,6 +66,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Set<String> recipes = {};
   Set<String> owned = {'cafe'};
   String venueId = 'cafe';
+  String style = 'classic'; // hoạt cảnh nhà hàng
+  Set<String> styles = {'classic'};
+  bool ngocAnhChef = false; // false: Nguyên nấu, Ngọc Anh phục vụ | true: ngược lại
 
   // --- Trong ván ---
   double timeLeft = 0, spawnT = 0, msgT = 0;
@@ -74,7 +83,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   Venue get venue => venueById(venueId);
   int lvl(String id) => lv[id] ?? 0;
-  int get goal => 150 + day * 60;
+  /// 0 ở ngày đầu → 1 từ ngày 13: dùng để tăng độ khó từ từ
+  double get ease => ((day - 1) / 12).clamp(0.0, 1.0).toDouble();
+  int goalFor(int d) => 80 + d * 50 + (d > 6 ? (d - 6) * 20 : 0);
+  int get goal => goalFor(day);
+  double get burnTime => 12 - 5 * ease; // giây món chín chờ trước khi cháy
+  String get styleNow => remote ? hostStyle : style;
+  bool get castNA => remote ? hostCast : ngocAnhChef;
+  String get chefName => castNA ? kNgocAnh : kNguyen;
+  String get waiterName => castNA ? kNguyen : kNgocAnh;
   int get decorLv => remote ? hostDecor : lvl('decor');
   /// Khách trong chế độ hợp tác: chỉ hiển thị, mọi thao tác gửi lên chủ phòng
   bool get remote => mode == 'guest' && gameType == 'coop';
@@ -123,6 +140,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       recipes = Set<String>.from(m['recipes'] ?? recipes);
       owned = Set<String>.from(m['owned'] ?? owned);
       venueId = m['venue'] ?? 'cafe';
+      style = m['style'] ?? 'classic';
+      styles = Set<String>.from(m['styles'] ?? ['classic']);
+      ngocAnhChef = m['cast'] == true;
     });
   }
 
@@ -137,7 +157,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       v0 = bk[2] as String;
     }
     final p = await SharedPreferences.getInstance();
-    await p.setString('save', jsonEncode({'money': m0, 'day': d0, 'lv': lv, 'recipes': recipes.toList(), 'owned': owned.toList(), 'venue': v0}));
+    await p.setString('save', jsonEncode({'money': m0, 'day': d0, 'lv': lv, 'recipes': recipes.toList(), 'owned': owned.toList(), 'venue': v0, 'style': style, 'styles': styles.toList(), 'cast': ngocAnhChef}));
   }
 
   void say(String m) {
@@ -164,6 +184,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'ls': lost,
         'vn': venueId,
         'dc': lvl('decor'),
+        'sy': style,
+        'cn': ngocAnhChef,
         'tb': tables.map((e) => e.toJson()).toList(),
         'q': queue.map((e) => e.toJson()).toList(),
         'st': stations.map((e) => e.toJson()).toList(),
@@ -190,6 +212,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       lost = (m['ls'] as num).toInt();
       venueId = m['vn'];
       hostDecor = (m['dc'] as num?)?.toInt() ?? 0;
+      hostStyle = m['sy'] as String? ?? 'classic';
+      hostCast = m['cn'] == true;
       tables = lst('tb', TableS.fromJson);
       queue = lst('q', Ticket.fromJson);
       stations = lst('st', Station.fromJson);
@@ -210,6 +234,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       }
       screen = (scr == 'play' || scr == 'end') ? scr : 'wait';
     });
+    checkGoal();
     if (reward) save();
   }
 
@@ -422,7 +447,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   //  VÒNG ĐỜI NGÀY CHƠI (chạy ở local / host)
   // =====================================================================
   void startDay() {
-    tables = List.generate(min(3 + lvl('tables'), venue.maxTables), (_) => TableS());
+    tables = List.generate(min(4 + lvl('tables'), venue.maxTables), (_) => TableS());
     stations = List.generate(2 + lvl('stations'), (_) => Station());
     queue = [];
     counter = [];
@@ -430,7 +455,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     served = 0;
     lost = 0;
     starsLog = [];
-    timeLeft = 90;
+    timeLeft = 120 - 25 * ease; // ngày đầu dài 120 giây
+    goalHit = false;
+    goalBurstAt = null;
     spawnT = 1;
     activeStation = -1;
     selDishId = null;
@@ -472,7 +499,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
     timeLeft -= dt;
     if (msgT > 0) msgT -= dt;
-    final maxPat = 45.0 + 8 * lvl('decor');
+    final maxPat = 75 - 30 * ease + 8 * lvl('decor'); // khách kiên nhẫn hơn ở những ngày đầu
 
     if (timeLeft > 0) {
       spawnT -= dt;
@@ -485,7 +512,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           final avail = venue.recipes.where((r) => recipes.contains(r.id)).toList();
           tables[free[rnd.nextInt(free.length)]].c = Cust(avail[rnd.nextInt(avail.length)], maxPat);
         }
-        spawnT = max(2.5, (4 + rnd.nextDouble() * 4) * venue.spawnMul - day * 0.15);
+        spawnT = max(2.5, (5 + rnd.nextDouble() * 4) * (1.5 - 0.6 * ease) * venue.spawnMul); // khách đến thưa lúc đầu, dày dần
       }
     }
 
@@ -524,7 +551,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         if (s.prog >= s.need) s.done = true;
       } else if (s.done) {
         s.doneT += dt;
-        if (s.doneT > 7) s.burnt = true;
+        if (s.doneT > burnTime) s.burnt = true;
       }
     }
 
@@ -535,6 +562,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       endDay();
       return;
     }
+    checkGoal();
     tickN++;
     if (race) {
       if (tickN % 5 == 0) net.send(raceStatus());
@@ -542,6 +570,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       net.send(snapshot());
     }
     setState(() {});
+  }
+
+  void checkGoal() {
+    if (screen == 'play' && !goalHit && earned >= goal) {
+      goalHit = true;
+      goalBurstAt = DateTime.now();
+      goalBurstKey++;
+    }
   }
 
   void finishCustomer(TableS t, Cust c) {
@@ -751,7 +787,27 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ),
       );
 
-  String roleName(String r) => r == 'chef' ? '👨‍🍳 $kChefName (Đầu bếp)' : '🛎️ $kWaiterName (Phục vụ)';
+  String roleName(String r) => r == 'chef' ? '${castNA ? '👩‍🍳' : '👨‍🍳'} $chefName (Đầu bếp)' : '🛎️ $waiterName (Phục vụ)';
+
+  /// Nút đổi ai nấu – ai phục vụ
+  Widget castPicker() => Wrap(spacing: 8, alignment: WrapAlignment.center, children: [
+        ChoiceChip(
+          label: const Text('👨‍🍳 Nguyên nấu, Ngọc Anh phục vụ'),
+          selected: !ngocAnhChef,
+          onSelected: (_) {
+            setState(() => ngocAnhChef = false);
+            save();
+          },
+        ),
+        ChoiceChip(
+          label: const Text('👩‍🍳 Ngọc Anh nấu, Nguyên phục vụ'),
+          selected: ngocAnhChef,
+          onSelected: (_) {
+            setState(() => ngocAnhChef = true);
+            save();
+          },
+        ),
+      ]);
 
   // --- Menu & phòng ---
   Widget menuScreen() => Center(
@@ -760,7 +816,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             const SizedBox(height: 12),
             const Text('🍽️', style: TextStyle(fontSize: 64)),
             const Text('Nhà Hàng Đôi', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
-            const Text('của $kChefName 👨‍🍳 & $kWaiterName 👩‍🍳', style: TextStyle(fontSize: 16, color: Colors.deepOrange, fontWeight: FontWeight.w600)),
+            const Text('của $kNguyen 👨 & $kNgocAnh 👩', style: TextStyle(fontSize: 16, color: Colors.deepOrange, fontWeight: FontWeight.w600)),
             Text('Ngày $day  •  💰 $money  •  ${venue.emoji} ${venue.name}'),
             const SizedBox(height: 16),
             bigButton('📱 Chơi 1 máy (1–2 người)', () {
@@ -771,13 +827,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             bigButton('🌐 Tạo phòng (mời hàng xóm)', () => setState(() => screen = 'create')),
             bigButton('🔑 Vào phòng bằng mã', () => setState(() => screen = 'join'), color: Colors.indigo),
             bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-            const Padding(
-              padding: EdgeInsets.all(20),
+            const SizedBox(height: 8),
+            const Text('Ai nấu ăn?', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: castPicker()),
+            Padding(
+              padding: const EdgeInsets.all(20),
               child: Text(
-                '👨‍🍳 $kChefName – ĐẦU BẾP: chạm bếp nhận đơn → chạm đúng nguyên liệu → chờ chín → chạm bếp lấy món ra quầy (đừng để cháy!).\n\n'
-                '🛎️ $kWaiterName – PHỤC VỤ: chạm khách để nhận order → chạm món ở quầy rồi chạm đúng bàn → chạm bàn bẩn để dọn.\n\n'
+                '👨‍🍳 $chefName – ĐẦU BẾP: chạm bếp nhận đơn → chạm đúng nguyên liệu → chờ chín → chạm bếp lấy món ra quầy (đừng để cháy!).\n\n'
+                '🛎️ $waiterName – PHỤC VỤ: chạm khách để nhận order → chạm món ở quầy rồi chạm đúng bàn → chạm bàn bẩn để dọn.\n\n'
                 '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ chung 1 quán.\n'
                 '🏁 Thi đấu: 2 máy, mỗi người tự lo quán của mình, ai bán được nhiều món hơn thì thắng.\n\n'
+                'Những ngày đầu khách đến thưa và kiên nhẫn, càng về sau càng đông và khó hơn.\n'
                 'Tiền và nâng cấp được lưu tự động, kể cả khi thoát app.',
                 textAlign: TextAlign.center,
               ),
@@ -817,6 +878,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               _modeCard('coop', '🤝 Hợp tác', 'Chung 1 quán: một người nấu, một người phục vụ'),
               _modeCard('race', '🏁 Thi đấu', 'Mỗi người 1 quán, ai bán nhiều món hơn thắng'),
             ]),
+            const SizedBox(height: 12),
+            const Text('Ai nấu ăn?', style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 6),
+            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: castPicker()),
             const SizedBox(height: 12),
             if (createGame == 'coop') ...[
               const Text('Bạn muốn đóng vai nào?', style: TextStyle(fontSize: 16)),
@@ -986,18 +1051,48 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     // 1 máy hoặc thi đấu: một người lo cả bếp lẫn sảnh.
     // Bếp ở trên, sảnh ở dưới, cùng một hướng nhìn: ô "Quầy ra món" của sảnh nằm sát bếp.
     // Chủ phòng chơi thử khi chưa có ai vào: cũng hiện cả bếp lẫn sảnh.
+    Widget col;
     if (mode == 'local' || race || (mode == 'host' && !guestJoined)) {
-      return Column(children: [
-        hud(race ? '🏁 THI ĐẤU' : '🍽️ $kChefName & $kWaiterName'),
+      col = Column(children: [
+        hud(race ? '🏁 THI ĐẤU' : '🍽️ $chefName & $waiterName'),
         if (race) oppBar(),
-        Expanded(flex: 5, child: kitchenBody(compact: true)),
+        Expanded(flex: 4, child: kitchenBody(compact: true)),
         Container(height: 3, color: Colors.black54),
-        Expanded(flex: 6, child: diningBody()),
+        Expanded(flex: 7, child: diningBody()),
+      ]);
+    } else {
+      col = Column(children: [
+        hud(myRole == 'chef' ? '${castNA ? '👩‍🍳' : '👨‍🍳'} $chefName' : '🛎️ $waiterName'),
+        Expanded(child: myRole == 'chef' ? kitchenBody() : diningBody()),
       ]);
     }
-    return Column(children: [
-      hud(myRole == 'chef' ? '👨‍🍳 $kChefName' : '🛎️ $kWaiterName'),
-      Expanded(child: myRole == 'chef' ? kitchenBody() : diningBody()),
+    final at = goalBurstAt;
+    final burst = at != null && DateTime.now().difference(at).inMilliseconds < 3500;
+    if (!burst) return col;
+    return Stack(children: [
+      col,
+      Positioned.fill(child: ConfettiLayer(key: ValueKey(goalBurstKey), duration: 2.5, fireworks: false)),
+      Align(
+        alignment: const Alignment(0, -0.35),
+        child: IgnorePointer(
+          child: TweenAnimationBuilder<double>(
+            key: ValueKey('b$goalBurstKey'),
+            tween: Tween(begin: 0.3, end: 1.0),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.elasticOut,
+            builder: (_, v, child) => Transform.scale(scale: v, child: child),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFFFFB300), Color(0xFFFF7043)]),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 3))],
+              ),
+              child: const Text('🎯 ĐẠT MỤC TIÊU NGÀY! 🎉', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ),
+      ),
     ]);
   }
 
@@ -1008,6 +1103,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         selDishId: selDishId,
         venueId: venueId,
         decor: decorLv,
+        style: styleNow,
+        waiterLook: castLook(waiterName, 'waiter'),
+        waiterName: waiterName,
         onTable: doTable,
         onDish: onDish,
       );
@@ -1023,6 +1121,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             activeStation: activeStation,
             hasOrders: queue.isNotEmpty,
             venueId: venueId,
+            style: styleNow,
+            burnTime: burnTime,
+            chefLook: castLook(chefName, 'chef'),
+            chefName: chefName,
             ingEmoji: ingEmoji,
             onStation: doStation,
           ),
@@ -1134,13 +1236,27 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   Widget endScreen() {
     final avg = starsLog.isEmpty ? 0.0 : starsLog.reduce((a, b) => a + b) / starsLog.length;
-    final prevGoal = 150 + (day - 1) * 60; // day đã tăng sau khi kết thúc ngày
+    final prevGoal = goalFor(day - 1); // day đã tăng sau khi kết thúc ngày
     final reached = earned >= prevGoal;
     final isGuest = mode == 'guest';
     final bk = _bk;
-    return Center(
+    final raceDone = race && guestJoined && oppScr == 'end';
+    final raceDiff = served != oppServed ? served - oppServed : earned - oppEarned;
+    // Thắng: thi đấu thì phải hơn hàng xóm, còn lại là đạt mục tiêu ngày
+    final win = raceDone ? raceDiff > 0 : (!race || !guestJoined) && reached;
+    final sad = raceDone ? raceDiff < 0 : (!race || !guestJoined) && !reached;
+    final content = Center(
       child: SingleChildScrollView(
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          if (win || sad)
+            DancingCouple(
+              happy: win,
+              left: castLook(chefName, 'chef'),
+              right: castLook(waiterName, 'waiter'),
+              leftName: chefName,
+              rightName: waiterName,
+              height: 170,
+            ),
           if (race) ...[raceResult(), const SizedBox(height: 16)],
           Text(reached ? '🎉 Đạt mục tiêu! (+50 thưởng)' : '😅 Chưa đạt mục tiêu', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -1173,6 +1289,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ]),
       ),
     );
+    if (!win) return content;
+    return Stack(children: [content, const Positioned.fill(child: ConfettiLayer())]);
   }
 
   // --- Cửa hàng (chỉ local / host) ---
@@ -1224,6 +1342,34 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         }
                       },
                       child: Text('💰${r.unlock}')),
+            ),
+          header('🎨 Hoạt cảnh nhà hàng'),
+          for (final st in sceneStyles)
+            ListTile(
+              leading: Text(st.emoji, style: const TextStyle(fontSize: 28)),
+              title: Text(st.name),
+              subtitle: Text(st.desc),
+              selected: st.id == style,
+              trailing: styles.contains(st.id)
+                  ? (st.id == style
+                      ? const Text('Đang dùng')
+                      : OutlinedButton(
+                          onPressed: () {
+                            style = st.id;
+                            save();
+                            setState(() {});
+                          },
+                          child: const Text('Chọn')))
+                  : ElevatedButton(
+                      onPressed: () {
+                        if (pay(st.cost)) {
+                          styles.add(st.id);
+                          style = st.id;
+                          save();
+                          setState(() {});
+                        }
+                      },
+                      child: Text('💰${st.cost}')),
             ),
           header('🏪 Chi nhánh & mô hình kinh doanh'),
           for (final v in venues)
