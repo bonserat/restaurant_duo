@@ -95,11 +95,14 @@ class GButton extends StatelessWidget {
       ),
       child: Row(mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
         if (emoji != null) ...[Text(emoji!, style: TextStyle(fontSize: height * 0.4)), const SizedBox(width: 8)],
-        Flexible(
-          child: Text(label,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white, fontSize: height * 0.31, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
-        ),
+        if (expand)
+          Flexible(
+            child: Text(label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white, fontSize: height * 0.31, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
+          )
+        else
+          Text(label, style: TextStyle(color: Colors.white, fontSize: height * 0.31, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
       ]),
     );
     return Semantics(
