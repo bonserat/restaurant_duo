@@ -44,7 +44,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   String hubTab = 'map'; // map | shop | home | online
 
   // --- Chế độ chơi ---
-  String mode = 'local'; // local (1 máy) | host | guest
+  String mode = 'local'; // local (1 máy) | pending (đang chờ người kia) | host | guest
+  static const duoRoom = 'nguyen-ngocanh'; // phòng cố định của 2 máy, không cần nhập mã
+  int myJoinAt = 0;
+  String peerName = '';
   String myRole = 'both'; // chef | waiter | both
   String createRole = 'chef';
   String gameType = 'coop'; // coop: 1 đầu bếp + 1 phục vụ | race: mỗi người 1 quán, thi bán nhiều món
@@ -133,7 +136,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool get hasOpp => race && (mode == 'guest' || guestJoined);
   String get shopBack => mode == 'host' ? 'lobby' : (mode == 'guest' ? 'wait' : 'menu');
   bool get peerLost {
-    if (mode == 'local') return false;
+    if (mode == 'local' || mode == 'pending') return false;
     if (mode == 'host' && !guestJoined) return false;
     if (mode == 'guest' && !joined) return false;
     return DateTime.now().difference(lastPeer).inSeconds > 7;
@@ -391,8 +394,28 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void onNet(Map<String, dynamic> m) {
     lastPeer = DateTime.now();
     final t = m['t'];
+    final who = m['own'];
+    if (who is String && who.isNotEmpty) peerName = who;
+    if (mode == 'pending') {
+      // Hai máy cùng vào phòng chờ: máy vào trước làm chủ phòng
+      if (t == 'hello') {
+        final at = (m['at'] as num?)?.toInt() ?? 0;
+        final iFirst = myJoinAt < at || (myJoinAt == at && owner.compareTo(peerName) <= 0);
+        if (iFirst) {
+          becomeHost();
+        } else {
+          becomeGuest();
+        }
+      } else if (t == 'join') {
+        becomeHost();
+      } else if (t == 'state' || t == 'race') {
+        becomeGuest();
+        onNet(m);
+      }
+      return;
+    }
     if (mode == 'host') {
-      if (t == 'join') {
+      if (t == 'join' || t == 'hello') {
         guestJoined = true;
         net.send(race ? raceStatus() : snapshot());
         setState(() {});
@@ -403,6 +426,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         applyAction(m);
       } else if (t == 'bye') {
         lastPeer = DateTime(2000);
+        if (screen != 'play') guestJoined = false; // người kia rời phòng: chờ họ vào lại
         setState(() {});
       }
     } else if (mode == 'guest') {
@@ -445,62 +469,62 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     setState(() {});
   }
 
-  String _newCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    return List.generate(4, (_) => chars[rnd.nextInt(chars.length)]).join();
-  }
-
-  Future<void> createRoom() async {
+  /// Vào phòng chờ chung của 2 máy (không cần mã). Ai vào trước làm chủ phòng.
+  Future<void> enterDuo() async {
     if (!onlineConfigured) return snack('Chưa điền Supabase trong lib/config.dart');
-    roomCode = _newCode();
-    mode = 'host';
-    gameType = createGame;
-    myRole = createGame == 'race' ? 'both' : createRole;
-    oppScr = 'wait';
+    roomCode = duoRoom;
+    mode = 'pending';
+    peerName = '';
+    myJoinAt = DateTime.now().millisecondsSinceEpoch;
     guestJoined = false;
+    joined = false;
+    oppScr = 'wait';
     lastPeer = DateTime.now();
-    netStatus = 'Đang kết nối...';
-    setState(() => screen = 'lobby');
+    netStatus = 'Đang kết nối…';
+    setState(() {});
     await net.connect(roomCode, onNet, () {
-      if (mounted) setState(() => netStatus = 'Phòng đã mở');
-      net.send(race ? raceStatus() : snapshot());
+      if (mounted) setState(() => netStatus = 'Đang chờ người kia vào phòng…');
+      net.send({'t': 'hello', 'at': myJoinAt, 'own': owner});
     }, (e) {
       if (mounted) setState(() => netStatus = 'Lỗi kết nối: $e');
     });
     netTimer?.cancel();
     netTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mode == 'host') net.send(race ? raceStatus() : snapshot());
+      if (mode == 'pending') {
+        net.send({'t': 'hello', 'at': myJoinAt, 'own': owner});
+      } else if (mode == 'host') {
+        net.send(race ? raceStatus() : snapshot());
+      } else if (mode == 'guest') {
+        net.send({'t': 'join', 'own': owner}); // vừa là xin vào, vừa là ping
+        if (race) net.send(raceStatus());
+      }
       if (mounted) setState(() {});
     });
   }
 
-  Future<void> joinRoom() async {
-    if (!onlineConfigured) return snack('Chưa điền Supabase trong lib/config.dart');
-    final code = codeCtl.text.trim().toUpperCase();
-    if (code.length != 4) return snack('Mã phòng gồm 4 ký tự');
+  void becomeHost() {
+    mode = 'host';
+    gameType = createGame;
+    myRole = createGame == 'race' ? 'both' : createRole;
+    oppScr = 'wait';
+    guestJoined = true;
+    lastPeer = DateTime.now();
+    Sound.sfx('door', vol: 0.6);
+    setState(() => screen = 'lobby');
+    net.send(race ? raceStatus() : snapshot());
+  }
+
+  void becomeGuest() {
     _bk = [money, day, venueId];
-    roomCode = code;
     mode = 'guest';
     gameType = 'coop'; // sẽ biết đúng loại khi nhận tin đầu tiên từ chủ phòng
     oppScr = 'wait';
     joined = false;
     lastPeer = DateTime.now();
-    netStatus = 'Đang kết nối...';
+    netStatus = 'Đang vào phòng${peerName.isEmpty ? '' : ' của $peerName'}…';
+    Sound.sfx('door', vol: 0.6);
     setState(() {});
-    await net.connect(code, onNet, () {
-      if (mounted) setState(() => netStatus = 'Đang tìm phòng $code...');
-      net.send({'t': 'join'});
-    }, (e) {
-      if (mounted) setState(() => netStatus = 'Lỗi kết nối: $e');
-    });
-    netTimer?.cancel();
-    netTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (mode == 'guest') {
-        net.send({'t': 'join'}); // vừa là xin vào, vừa là ping
-        if (race) net.send(raceStatus());
-      }
-      if (mounted) setState(() {});
-    });
+    net.send({'t': 'join', 'own': owner});
   }
 
   Future<void> leaveRoom({String? notice}) async {
@@ -569,7 +593,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         confirmExit();
         break;
       case 'menu':
-        if (mode == 'guest') {
+        if (mode == 'guest' || mode == 'pending') {
           leaveRoom();
         } else if (hubTab != 'map') {
           setState(() => hubTab = 'map');
@@ -1544,82 +1568,76 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget onlineTab() => ListView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), children: [
-        AppCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Row(children: [
-              EmojiTile('🏠', tint: Pal.sky, size: 44),
-              SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Tạo phòng', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Pal.text)),
-                  Text('Người kia nhập mã 4 ký tự để vào', style: TextStyle(color: Pal.muted, fontSize: 12.5)),
+  Widget onlineTab() {
+    final waiting = mode == 'pending' || mode == 'guest';
+    final other = owner == kNguyen ? kNgocAnh : kNguyen;
+    return ListView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), children: [
+      AppCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            ownerBadge(size: 48),
+            const SizedBox(width: 6),
+            const Text('🤝', style: TextStyle(fontSize: 22)),
+            const SizedBox(width: 6),
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: Pal.bg, border: Border.all(color: Pal.line, width: 2)),
+              child: ClipOval(
+                child: Stack(clipBehavior: Clip.hardEdge, children: [
+                  Positioned(
+                    top: -48 * 0.33,
+                    left: (48 - 48 * 1.9) / 2,
+                    child: PersonAvatar(look: other == kNgocAnh ? ngocAnhLook : nguyenLook, role: '', height: 48 * 2.38),
+                  ),
                 ]),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: _modeCard('coop', '🤝', 'Hợp tác', 'Chung một quán: một người nấu, một người phục vụ')),
-              const SizedBox(width: 10),
-              Expanded(child: _modeCard('race', '🏁', 'Thi đấu', 'Mỗi người ở nhà hàng của mình, ai bán nhiều món hơn thắng')),
-            ]),
-            if (createGame == 'coop') ...[
-              const SizedBox(height: 14),
-              const Text('Bạn đóng vai nào?', style: TextStyle(fontWeight: FontWeight.w800, color: Pal.text)),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: _roleCard('chef')),
-                const SizedBox(width: 10),
-                Expanded(child: _roleCard('waiter')),
-              ]),
-            ],
-            const SizedBox(height: 14),
-            GButton('Tạo phòng', emoji: '✨', onTap: mode == 'guest' ? null : createRoom, colors: const [Pal.sky, Color(0xFF7B6CFF)]),
-          ]),
-        ),
-        const SizedBox(height: 12),
-        AppCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Row(children: [
-              EmojiTile('🔑', tint: Pal.mint, size: 44),
-              SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Vào phòng', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Pal.text)),
-                  Text('Nhập mã phòng của người kia', style: TextStyle(color: Pal.muted, fontSize: 12.5)),
-                ]),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            TextField(
-              controller: codeCtl,
-              enabled: mode != 'guest',
-              textAlign: TextAlign.center,
-              textCapitalization: TextCapitalization.characters,
-              maxLength: 4,
-              style: const TextStyle(fontSize: 30, letterSpacing: 12, fontWeight: FontWeight.w900, color: Pal.text),
-              decoration: InputDecoration(
-                counterText: '',
-                hintText: 'ABCD',
-                hintStyle: const TextStyle(color: Color(0xFFD8CFC2), letterSpacing: 12),
-                filled: true,
-                fillColor: Pal.bg,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
               ),
             ),
-            const SizedBox(height: 10),
-            if (mode == 'guest')
-              Row(children: [
-                const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5)),
-                const SizedBox(width: 10),
-                Expanded(child: Text(netStatus, style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w600))),
-                SoftButton('Huỷ', onTap: () => leaveRoom(), tint: Pal.danger),
-              ])
-            else
-              GButton('Vào phòng', emoji: '🚪', onTap: joinRoom, colors: const [Pal.mint, Pal.mint2]),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Chơi 2 máy', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Pal.text)),
+                Text('Hai máy cùng bấm "Vào phòng chờ" là tự gặp nhau, không cần mã.', style: const TextStyle(color: Pal.muted, fontSize: 12.5)),
+              ]),
+            ),
           ]),
-        ),
-      ]);
+          const SizedBox(height: 14),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: _modeCard('coop', '🤝', 'Hợp tác', 'Chung một quán: một người nấu, một người phục vụ')),
+            const SizedBox(width: 10),
+            Expanded(child: _modeCard('race', '🏁', 'Thi đấu', 'Mỗi người ở nhà hàng của mình, ai bán nhiều món hơn thắng')),
+          ]),
+          if (createGame == 'coop') ...[
+            const SizedBox(height: 14),
+            const Text('Bạn đóng vai nào?', style: TextStyle(fontWeight: FontWeight.w800, color: Pal.text)),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: _roleCard('chef')),
+              const SizedBox(width: 10),
+              Expanded(child: _roleCard('waiter')),
+            ]),
+          ],
+          const SizedBox(height: 10),
+          const Text('Người vào phòng chờ trước sẽ làm chủ phòng: kiểu chơi và vai do người đó chọn.',
+              style: TextStyle(color: Pal.muted, fontSize: 12)),
+          const SizedBox(height: 14),
+          if (waiting)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: const Color(0xFFEAF1FF), borderRadius: BorderRadius.circular(16)),
+              child: Row(children: [
+                const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Pal.sky)),
+                const SizedBox(width: 12),
+                Expanded(child: Text(netStatus, style: const TextStyle(fontWeight: FontWeight.w700, color: Pal.text))),
+                SoftButton('Huỷ', onTap: () => leaveRoom(), tint: Pal.danger),
+              ]),
+            )
+          else
+            GButton('Vào phòng chờ', emoji: '👥', onTap: enterDuo, colors: const [Pal.sky, Color(0xFF7B6CFF)]),
+        ]),
+      ),
+    ]);
+  }
 
   // ---------- Cài đặt & hướng dẫn (bảng trượt) ----------
   Widget castCards(VoidCallback refresh) {
@@ -1766,6 +1784,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           'Giữ thú cưng từ 40♥ trở lên để chúng giúp quán. Chạm vào thú cưng trong lúc chơi để vuốt ve.',
         ], tint: Pal.berry),
         _guideCard('👥', 'Chơi đôi', [
+          '👥 Cả hai máy vào tab Chơi đôi, bấm "Vào phòng chờ" là tự gặp nhau. Người vào trước làm chủ phòng và bấm Bắt đầu.',
           '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ, chung một quán.',
           '🏁 Thi đấu: Nguyên ở nhà hàng của Nguyên, Ngọc Anh ở nhà hàng của Ngọc Anh, ai bán nhiều món hơn thắng.',
           '📱 Một máy: một người lo cả bếp lẫn sảnh, hoặc hai người ngồi cạnh nhau.',
@@ -1816,10 +1835,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           child: Column(children: [
             Tag(race ? '🏁 PHÒNG THI ĐẤU' : '🤝 PHÒNG HỢP TÁC', color: Pal.gold),
             const SizedBox(height: 18),
-            const Text('Mã phòng', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+            Text('${owner.isEmpty ? 'Bạn' : owner} 🤝 ${peerName.isEmpty ? 'người kia' : peerName}',
+                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
-            codeTiles(roomCode),
-            const SizedBox(height: 14),
             Text(race ? 'Mỗi người chơi ở nhà hàng của mình' : 'Chơi tại $shopName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
             if (!race)
               Padding(
@@ -1828,10 +1846,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, height: 1.4)),
               ),
             const SizedBox(height: 18),
-            _stageStatus(guestJoined, guestJoined ? 'Hàng xóm đã vào phòng!' : 'Đang chờ hàng xóm nhập mã…'),
+            _stageStatus(
+              guestJoined && !peerLost,
+              !guestJoined
+                  ? 'Đang chờ ${peerName.isEmpty ? 'người kia' : peerName} vào phòng…'
+                  : (peerLost ? 'Mất kết nối với ${peerName.isEmpty ? 'người kia' : peerName}…' : '${peerName.isEmpty ? 'Người kia' : peerName} đã vào phòng!'),
+            ),
             if (netStatus.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(netStatus, style: const TextStyle(color: Colors.white38, fontSize: 12))),
             const SizedBox(height: 20),
-            GButton('Bắt đầu ngày $day', emoji: '▶', onTap: guestJoined ? startDay : null),
+            GButton('Bắt đầu ngày $day', emoji: '▶', onTap: guestJoined && !peerLost ? startDay : null),
             const SizedBox(height: 12),
             Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
               SoftButton('Cửa hàng', emoji: '🛍️', tint: Colors.white, onTap: () => setState(() => screen = 'shop')),
@@ -1848,7 +1871,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             Tag(race ? '🏁 THI ĐẤU' : '🤝 HỢP TÁC', color: Pal.gold),
             const SizedBox(height: 14),
             if (!race) PersonAvatar(look: castLook(myRole == 'chef' ? chefName : waiterName, myRole), role: myRole, height: 150),
-            Text('Đã vào phòng $roomCode', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+            Text('Đã vào phòng${hostOwner.isEmpty ? '' : ' của $hostOwner'}', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
             const SizedBox(height: 4),
             Text(race ? 'Bạn chơi ở $shopName' : 'Vai của bạn: ${roleName(myRole)}', style: const TextStyle(color: Colors.white70, fontSize: 15)),
             const SizedBox(height: 18),
