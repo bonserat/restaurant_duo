@@ -2340,62 +2340,50 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     final n = st.length;
     final t = _clock.value;
 
-    if (widget.island) {
-      _paintIsland(c, w, h, t, th);
-    } else {
-      // Tường gạch men
-      final wallB = h * 0.62;
-      c.drawRect(Rect.fromLTWH(0, 0, w, wallB), Paint()..color = widget.style == 'night' ? const Color(0xFFDCD8E8) : const Color(0xFFF4F0EA));
-      final grout = Paint()
-        ..color = const Color(0xFFDDD5C8)
-        ..strokeWidth = 1;
-      const tw = 34.0, tth = 17.0;
-      for (var row = 0; row * tth < wallB; row++) {
-        final y = row * tth;
-        c.drawLine(Offset(0, y), Offset(w, y), grout);
-        final off = row.isOdd ? tw / 2 : 0.0;
-        for (double x = off; x < w; x += tw) {
-          c.drawLine(Offset(x, y), Offset(x, min(y + tth, wallB)), grout);
-        }
+    // Tường gạch men
+    final wallB = h * 0.62;
+    c.drawRect(Rect.fromLTWH(0, 0, w, wallB), Paint()..color = widget.style == 'night' ? const Color(0xFFDCD8E8) : const Color(0xFFF4F0EA));
+    final grout = Paint()
+      ..color = const Color(0xFFDDD5C8)
+      ..strokeWidth = 1;
+    const tw = 34.0, tth = 17.0;
+    for (var row = 0; row * tth < wallB; row++) {
+      final y = row * tth;
+      c.drawLine(Offset(0, y), Offset(w, y), grout);
+      final off = row.isOdd ? tw / 2 : 0.0;
+      for (double x = off; x < w; x += tw) {
+        c.drawLine(Offset(x, y), Offset(x, min(y + tth, wallB)), grout);
       }
-      // Sàn
-      c.drawRect(Rect.fromLTWH(0, wallB, w, h - wallB), Paint()..color = const Color(0xFF8F8F8F));
-      const ft = 28.0;
-      final fp = Paint()..color = const Color(0xFF7C7C7C);
-      for (var y = 0; wallB + y * ft < h; y++) {
-        for (var x = 0; x * ft < w; x++) {
-          if ((x + y).isOdd) c.drawRect(Rect.fromLTWH(x * ft, wallB + y * ft, ft, ft), fp);
-        }
-      }
-      c.drawRect(Rect.fromLTWH(0, wallB - 6, w, 6), Paint()..color = th.wall);
     }
+    // Sàn
+    c.drawRect(Rect.fromLTWH(0, wallB, w, h - wallB), Paint()..color = const Color(0xFF8F8F8F));
+    const ft = 28.0;
+    final fp = Paint()..color = const Color(0xFF7C7C7C);
+    for (var y = 0; wallB + y * ft < h; y++) {
+      for (var x = 0; x * ft < w; x++) {
+        if ((x + y).isOdd) c.drawRect(Rect.fromLTWH(x * ft, wallB + y * ft, ft, ft), fp);
+      }
+    }
+    c.drawRect(Rect.fromLTWH(0, wallB - 6, w, 6), Paint()..color = th.wall);
     if (n == 0) return;
 
-    // Các bếp dồn gọn vào giữa, không kéo giãn hết bề ngang
-    final cellW = widget.island ? (w - 16) / n : min(w / n, h * 0.62);
+    final cellW = w / n;
     _cw = cellW;
-    _ox = (w - cellW * n) / 2;
-
-    if (!widget.island) {
-      // quầy inox dài phía sau các bếp
-      final ct = RRect.fromRectAndRadius(Rect.fromLTRB(_ox - 10, h * 0.36, _ox + cellW * n + 10, h * 0.84), const Radius.circular(10));
-      c.drawRRect(ct.shift(const Offset(0, 4)), Paint()..color = const Color(0x33000000));
-      c.drawRRect(ct, Paint()..color = const Color(0xFF90A4AE));
-      for (var i = 0; i < n; i++) {
-        _drawStove(c, i, cellW, h, t);
-      }
+    _ox = 0;
+    for (var i = 0; i < n; i++) {
+      _drawStove(c, i, cellW, h, t);
     }
 
     // Đầu bếp
+    final cs = min(h * 0.45, cellW * 0.95);
+    if (_cx < 0) _cx = cellW * (_chefAt + 0.5) + cellW * 0.3;
     final at = _chefAt;
     final cheer = t < _cheerUntil && !_walking;
     final stirring = !_walking && !cheer && at < n && st[at].cooking;
     final anyBurnt = st.any((x) => x.burnt);
-    final cs = widget.island ? h * 0.7 : min(h * 0.45, cellW * 0.95);
-    if (_cx < 0) _cx = _ox + cellW * (_chefAt + 0.5) + cellW * (widget.island ? 0.0 : 0.3);
     drawPerson(
       c,
-      Offset(_cx, widget.island ? h * 0.2 : h * 0.97), // ở đảo bếp: đứng phía sau quầy
+      Offset(_cx, h * 0.97),
       cs,
       widget.chefLook,
       role: 'chef',
@@ -2408,15 +2396,9 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       stir: stirring ? t * 8 : -1,
       name: widget.chefName,
     );
-    if (widget.island) {
-      _paintIslandTop(c, w, h, t, th);
-      for (var i = 0; i < n; i++) {
-        _drawIslandStation(c, i, Rect.fromLTWH(_ox + cellW * i, h * 0.22, cellW, h * 0.74), t);
-      }
-    }
 
     if (_hoverSt >= 0 && _hoverSt < n) {
-      final hr = RRect.fromRectAndRadius(Rect.fromLTWH(_ox + cellW * _hoverSt + 3, 3, cellW - 6, h - 6), const Radius.circular(14));
+      final hr = RRect.fromRectAndRadius(Rect.fromLTWH(cellW * _hoverSt + 3, 3, cellW - 6, h - 6), const Radius.circular(14));
       c.drawRRect(hr, Paint()..color = _a(const Color(0xFF66BB6A), 0.15));
       c.drawRRect(hr, Paint()
         ..style = PaintingStyle.stroke
@@ -2427,194 +2409,24 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     // Hộp cầu dao (góc trên phải)
     final power = widget.incidents.any((x) => x.type == 'power');
     if (power) c.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0x8C000000));
-    _fuse = widget.island ? Rect.fromLTWH(w - 30, h * 0.24, 26, 22) : Rect.fromLTWH(w - 44, 4, 38, 30);
+    _fuse = Rect.fromLTWH(w - 44, 4, 38, 30);
     final blink = power && sin(t * 10) > 0;
     c.drawRRect(RRect.fromRectAndRadius(_fuse, const Radius.circular(5)), Paint()..color = blink ? const Color(0xFFFF5252) : const Color(0xFF78909C));
     c.drawRRect(RRect.fromRectAndRadius(_fuse.deflate(3), const Radius.circular(3)), Paint()..color = const Color(0xFF37474F));
-    _emoji(c, '⚡', _fuse.center, _fuse.height * 0.55);
-    if (power) _pill(c, '⚡ Mất điện! Chọn 🔌 rồi chạm cầu dao', Offset(w / 2, h * 0.55), max(10.0, min(13.0, w * 0.035)), bg: const Color(0xFFFFF59D));
-  }
-
-  /// Thân đảo bếp (vẽ trước đầu bếp: phần chân đầu bếp bị quầy che)
-  void _paintIsland(Canvas c, double w, double h, double t, VTheme th) {
-    final body = RRect.fromRectAndRadius(Rect.fromLTWH(0, h * 0.24, w, h * 0.76), const Radius.circular(18));
-    c.drawRRect(body.shift(const Offset(0, 6)), Paint()..color = const Color(0x40000000));
-  }
-
-  /// Mặt đá + thân gỗ của đảo bếp (vẽ sau đầu bếp)
-  void _paintIslandTop(Canvas c, double w, double h, double t, VTheme th) {
-    final body = RRect.fromRectAndRadius(Rect.fromLTWH(0, h * 0.24, w, h * 0.76), const Radius.circular(18));
-    c.drawRRect(body, Paint()..shader = _vg(_lt(th.wood, 0.05), _dk(th.wood, 0.35)).createShader(body.outerRect));
-    final top = RRect.fromRectAndRadius(Rect.fromLTWH(4, h * 0.2, w - 8, h * 0.66), const Radius.circular(14));
-    c.drawRRect(top, Paint()..shader = _vg(const Color(0xFFFAFAFA), const Color(0xFFDADDE0)).createShader(top.outerRect));
-    final vein = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = const Color(0x22607D8B);
-    for (var k = 0; k < 3; k++) {
-      c.drawPath(
-        Path()
-          ..moveTo(w * (0.1 + 0.3 * k), top.top + 4)
-          ..quadraticBezierTo(w * (0.2 + 0.3 * k), h * 0.5, w * (0.12 + 0.3 * k), top.bottom - 4),
-        vein,
-      );
-    }
-    c.drawRRect(top, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = const Color(0x33000000));
-  }
-
-  /// Một bếp trên đảo (nhìn từ trên xuống): bếp từ, nồi, thớt, món chín
-  void _drawIslandStation(Canvas c, int i, Rect cell, double t) {
-    final s = widget.stations[i];
-    final tk = s.t;
-    final active = i == widget.activeStation;
-    final top = cell.deflate(4);
-    final cx = top.center.dx;
-    final r = min(top.width * 0.3, top.height * 0.3);
-    final pc = Offset(cx, top.top + top.height * 0.52);
-    final fs = max(9.0, min(top.height * 0.12, top.width * 0.13));
-
-    // mặt bếp đen
-    final plate = RRect.fromRectAndRadius(Rect.fromCenter(center: pc, width: r * 2.7, height: r * 2.5), Radius.circular(r * 0.4));
-    c.drawRRect(plate, Paint()..color = const Color(0xFF263238));
-    if (active) {
-      c.drawRRect(plate.inflate(3), Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = const Color(0xFF42A5F5));
-    }
-    // vòng lửa theo núm vặn
-    if (s.cooking) {
-      final col = s.heat < 0.3 ? const Color(0xFF4FC3F7) : (s.heat <= 0.75 ? const Color(0xFFFF9800) : const Color(0xFFFF3D00));
-      for (var k = 0; k < 10; k++) {
-        final a = k * pi / 5 + t * 2;
-        final fl = r * (1.02 + 0.12 * s.heat + 0.06 * sin(t * 20 + k));
-        c.drawCircle(pc + Offset(cos(a), sin(a)) * fl, r * (0.12 + 0.12 * s.heat), Paint()..color = _a(col, 0.85));
-      }
-    } else {
-      c.drawCircle(pc, r * 1.05, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..color = const Color(0xFF455A64));
-    }
-    // nồi
-    c.drawCircle(pc, r, Paint()..color = s.burnt ? const Color(0xFF212121) : const Color(0xFF90A4AE));
-    c.drawCircle(pc, r * 0.84, Paint()..color = s.burnt ? const Color(0xFF3E2723) : const Color(0xFF546E7A));
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(pc.dx + r * 0.9, pc.dy - r * 0.12, r * 0.7, r * 0.24), Radius.circular(r * 0.1)), Paint()..color = const Color(0xFF5D4037));
-    if (tk != null && !s.done) {
-      // nguyên liệu trong nồi
-      if (s.cooking) {
-        c.drawCircle(pc, r * 0.8, Paint()..color = const Color(0xFFBF7A3A));
-        for (var k = 0; k < 4; k++) {
-          final ph = (t * 1.5 + k / 4 + i * 0.3) % 1.0;
-          c.drawCircle(pc + Offset(sin(k * 2.1) * r * 0.45, cos(k * 1.7) * r * 0.4), r * 0.12 * ph, Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.2
-            ..color = _a(Colors.white, 1 - ph));
-        }
-      }
-      var k = 0;
-      for (final id in tk.recipe.ings) {
-        if (!s.added.contains(id)) continue;
-        final a = k * 2 * pi / max(1, s.added.length) + t * (s.cooking ? 1.2 : 0);
-        _emoji(c, widget.ingEmoji(id), pc + Offset(cos(a), sin(a)) * r * 0.42, r * 0.6);
-        k++;
-      }
-    }
-    // hơi nước / khói
-    if (s.cooking || s.done) {
-      for (var k = 0; k < 3; k++) {
-        final ph = (t * 0.8 + k / 3 + i * 0.17) % 1.0;
-        c.drawCircle(pc + Offset(sin(ph * 6 + k) * r * 0.4, -r * 0.6 - ph * r * 1.6), r * (0.2 + 0.3 * ph), Paint()..color = _a(s.burnt ? const Color(0xFF424242) : Colors.white, (1 - ph) * 0.55));
-      }
-    }
-    // thớt đang chờ thái
-    if (s.chopping) {
-      final bd = RRect.fromRectAndRadius(Rect.fromCenter(center: pc + Offset(0, r * 0.15), width: r * 2.5, height: r * 1.5), Radius.circular(r * 0.25));
-      c.drawRRect(bd, Paint()..color = const Color(0xFFD7A86E));
-      c.drawRRect(bd, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..color = const Color(0xFF8D6E63));
-      _emoji(c, widget.ingEmoji(s.board.first), pc + Offset(-r * 0.45, r * 0.15), r * 0.95);
-      final down = t - _knifeAt[i] < 0.12;
-      _emoji(c, '🔪', pc + Offset(r * 0.6, r * 0.15 - (down ? 0 : r * 0.35 + sin(t * 5).abs() * 2)), r * 0.85);
-    }
-    // món chín
-    if (s.done && tk != null) {
-      final b = sin(t * 5).abs() * r * 0.08;
-      drawDish(c, tk.recipe.id, pc - Offset(0, r * 0.25 + b), r * 2.4, t: t, burnt: s.burnt);
-      if (!s.burnt) _sparkle(c, pc + Offset(r * 1.0, -r * 0.9), r * 0.2, 0.4 + 0.6 * sin(t * 6).abs());
-    }
-    // hiệu ứng vừa nấu xong
-    final kd = t - _doneAt[i];
-    if (kd >= 0 && kd < 1.0) {
-      c.drawCircle(pc, r * (1.1 + kd * 1.6), Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1 + 4 * (1 - kd)
-        ..color = _a(const Color(0xFFFFD54F), 1 - kd));
-      for (var j = 0; j < 6; j++) {
-        final ang = j * pi / 3 + kd;
-        _sparkle(c, pc + Offset(cos(ang), sin(ang)) * r * (1.2 + kd * 1.3), r * 0.18, 1 - kd, const Color(0xFFFFF59D));
-      }
-    }
-    final ks = t - _sentAt[i];
-    if (ks >= 0 && ks < 0.7 && _sentEmoji[i].isNotEmpty) {
-      c.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, (1 - ks / 0.7).clamp(0.0, 1.0).toDouble()));
-      drawDish(c, _sentEmoji[i], pc - Offset(0, r * 0.3 + ks * r * 2.5), r * 2.4 * (1 + ks * 0.3), t: t);
-      c.restore();
-    }
-    // cháy bếp
-    for (final x in widget.incidents) {
-      if (x.type != 'fire' || x.target != i) continue;
-      for (var k = 0; k < 5; k++) {
-        final fx = top.left + top.width * (0.12 + 0.19 * k);
-        final fh = top.height * (0.45 + 0.15 * sin(t * 14 + k * 1.7));
-        c.drawPath(
-          Path()
-            ..moveTo(fx - top.width * 0.1, pc.dy + r)
-            ..quadraticBezierTo(fx + sin(t * 9 + k) * 5, pc.dy + r - fh, fx + top.width * 0.1, pc.dy + r)
-            ..close(),
-          Paint()..color = k.isEven ? const Color(0xFFFF6D00) : const Color(0xFFFFAB00),
-        );
-      }
-      _pill(c, '🔥 🧯×${x.hp}', Offset(cx, pc.dy), fs, bg: const Color(0xFFFFCDD2), fg: const Color(0xFFB71C1C));
-    }
-    // nhãn trên cùng + thanh tiến độ
-    if (tk == null) {
-      final b = widget.hasOrders ? sin(t * 6).abs() * 2 : 0.0;
-      _pill(c, widget.hasOrders ? '👆 Nhận đơn' : 'Trống', Offset(cx, top.top + fs * 0.4 - b), fs * 0.9,
-          bg: widget.hasOrders ? const Color(0xFFFFF59D) : Colors.white, fg: widget.hasOrders ? const Color(0xFF3E2723) : const Color(0xFF9E9E9E));
-    } else {
-      _pill(c, 'Bàn ${tk.table + 1}', Offset(cx, top.top + fs * 0.4), fs * 0.9, bg: s.done ? (s.burnt ? const Color(0xFFFFCDD2) : const Color(0xFFC8E6C9)) : Colors.white);
-    }
-    double? frac;
-    var barC = const Color(0xFFFFB300);
-    if (s.cooking) {
-      frac = s.need <= 0 ? 0.0 : (s.prog / s.need).clamp(0.0, 1.0).toDouble();
-    } else if (s.done && !s.burnt) {
-      frac = (1 - s.doneT / widget.burnTime).clamp(0.0, 1.0).toDouble();
-      barC = const Color(0xFFFF5252);
-    }
-    if (frac != null) {
-      final bar = Rect.fromLTWH(plate.left, plate.bottom + 3, plate.width, 5);
-      c.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(3)), Paint()..color = const Color(0x55000000));
-      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * frac, bar.height), const Radius.circular(3)), Paint()..color = barC);
-    }
+    _emoji(c, '⚡', _fuse.center, 16);
+    if (power) _pill(c, '⚡ Mất điện! Chọn 🔌 rồi chạm cầu dao', Offset(w / 2, h * 0.5), min(13.0, w * 0.035), bg: const Color(0xFFFFF59D));
   }
 
   void _drawStove(Canvas c, int i, double cellW, double h, double t) {
     final s = widget.stations[i];
-    final x0 = _ox + cellW * i;
+    final x0 = cellW * i;
     final cx = x0 + cellW / 2;
     final pad = max(4.0, cellW * 0.06);
     final active = i == widget.activeStation;
     final topY = h * 0.40, botY = h * 0.80;
     final body = Rect.fromLTRB(x0 + pad, topY, x0 + cellW - pad, botY);
     final tk = s.t;
-    final fs = max(11.0, min(h * 0.06, cellW * 0.14));
+    final fs = min(h * 0.055, cellW * 0.13);
 
     if (active) {
       final hl = RRect.fromRectAndRadius(Rect.fromLTRB(x0 + 2, 2, x0 + cellW - 2, botY + 4), const Radius.circular(14));
@@ -2812,16 +2624,44 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       _pill(
         c,
         widget.hasOrders ? '👆 Nhận đơn' : 'Bếp trống',
-        Offset(cx, max(fs * 1.2, h * 0.1) - b),
+        Offset(cx, h * 0.09 - b),
         fs * 0.9,
         bg: widget.hasOrders ? const Color(0xFFFFF59D) : Colors.white,
         fg: widget.hasOrders ? const Color(0xFF3E2723) : const Color(0xFF9E9E9E),
       );
       return;
     }
-    final py = max(fs * 1.2, h * 0.1);
-    if (!s.done) drawDish(c, tk.recipe.id, Offset(cx - fs * 2.2, py), fs * 2.6, t: t);
-    _pill(c, 'Bàn ${tk.table + 1}', Offset(s.done ? cx : cx + fs * 1.0, py), fs);
+    drawDish(c, tk.recipe.id, Offset(cx - fs * 1.9, h * 0.07), fs * 2.3, t: t);
+    _pill(c, 'B${tk.table + 1}', Offset(cx + fs * 0.6, h * 0.07), fs);
+    if (!s.done) {
+      final ings = tk.recipe.ings;
+      final isz = min(cellW * 0.8 / ings.length, h * 0.075);
+      for (var k = 0; k < ings.length; k++) {
+        final ip = Offset(cx + (k - (ings.length - 1) / 2) * isz * 1.15, h * 0.175);
+        final got = s.added.contains(ings[k]);
+        final onBoard = s.board.contains(ings[k]);
+        c.drawCircle(ip, isz * 0.58, Paint()..color = got ? const Color(0xFFC8E6C9) : (onBoard ? const Color(0xFFFFE082) : Colors.white));
+        c.drawCircle(ip, isz * 0.58, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = got ? Colors.green : const Color(0xFFBDBDBD));
+        _emoji(c, widget.ingEmoji(ings[k]), ip, isz * 0.75, alpha: got ? 0.35 : 1);
+      }
+    }
+    // Thanh nêm nếm: vùng xanh là vừa miệng (mỗi lần rắc không đều tay)
+    if (!s.burnt) {
+      const maxSalt = 5.0;
+      final mb = Rect.fromCenter(center: Offset(cx + fs * 0.6, h * 0.255), width: cellW * 0.62, height: max(5.0, h * 0.022));
+      c.drawRRect(RRect.fromRectAndRadius(mb, const Radius.circular(3)), Paint()..color = const Color(0xFFECEFF1));
+      final z0 = ((s.saltTarget - s.tol) / maxSalt).clamp(0.0, 1.0).toDouble();
+      final z1 = ((s.saltTarget + s.tol) / maxSalt).clamp(0.0, 1.0).toDouble();
+      c.drawRect(Rect.fromLTRB(mb.left + mb.width * z0, mb.top, mb.left + mb.width * z1, mb.bottom), Paint()..color = _a(const Color(0xFF66BB6A), 0.7));
+      final sx = mb.left + mb.width * (s.salt / maxSalt).clamp(0.0, 1.0).toDouble();
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(sx, mb.center.dy), width: 4, height: mb.height + 6), const Radius.circular(2)), Paint()..color = const Color(0xFF3E2723));
+      final shaking = t - _shakeAt[i] < 0.3;
+      _emoji(c, widget.seasonEmoji, Offset(mb.left - fs * 0.8, mb.center.dy - (shaking ? sin(t * 40) * 3 : 0)), fs * 1.0);
+    }
+
     // Trạng thái trên cửa lò
     String label;
     Color bg;
@@ -2835,7 +2675,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       label = '';
       bg = Colors.white;
     } else {
-      label = '🥕 Thêm nguyên liệu';
+      label = 'Kéo / chạm nguyên liệu';
       bg = Colors.white;
     }
     if (label.isNotEmpty) _pill(c, label, Offset(cx + 4, ov.center.dy - h * 0.02), fs * 0.72, bg: bg);

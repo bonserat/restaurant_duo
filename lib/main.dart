@@ -1739,11 +1739,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
         _guideCard('👨‍🍳', 'Đầu bếp • $chefName', [
           'Chạm vào một bếp trống để nhận order mới.',
-          'Kéo nguyên liệu từ kệ thả vào bếp, hoặc chạm ô nguyên liệu ở bảng thao tác phía dưới.',
-          'Nguyên liệu có 🔪 nằm trên thớt: bấm nút "Thái" (hoặc chạm vào bếp) tới khi xong.',
-          'Khi nấu, bấm − / + để giữ vạch lửa trong vùng xanh. Lửa quá to lâu sẽ cháy bếp.',
-          'Bấm "Nêm" cho vạch nằm trong vùng xanh: thiếu thì nhạt, thừa thì mặn.',
-          'Món chín: bấm "Ra quầy" trước khi món bị cháy.',
+          'Kéo nguyên liệu từ kệ thả vào bếp (hoặc chạm vào nguyên liệu).',
+          'Nguyên liệu có 🔪 nằm trên thớt: chạm vào bếp để thái từng nhát.',
+          'Khi nấu, chạm núm − / + trên bếp để giữ kim lửa trong vùng xanh. Lửa quá to lâu sẽ cháy bếp.',
+          'Chạm hoặc kéo gia vị ở kệ cho vạch nêm nằm trong vùng xanh: thiếu thì nhạt, thừa thì mặn.',
+          'Món chín: chạm bếp để đưa ra quầy trước khi cháy.',
         ], numbered: true),
         _guideCard('🛎️', 'Phục vụ • $waiterName', [
           'Khách giơ tay ❗: chạm vào bàn để nhận order.',
@@ -1951,15 +1951,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     // Bếp ở trên, sảnh ở dưới, cùng một hướng nhìn: ô "Quầy ra món" của sảnh nằm sát bếp.
     Widget col;
     if (mode == 'local' || race) {
-      // Một người lo cả hai việc: bếp gọn ở trên, sảnh ở dưới
+      // 1 máy hoặc thi đấu: bếp ở trên, sảnh ở dưới (như bản giao diện mới)
       col = Column(children: [
         hud(race ? '🏁 THI ĐẤU' : '🍽️ $chefName & $waiterName'),
         if (race) oppBar(),
-        orderBar(),
-        SizedBox(height: 150, child: kitchenScene()),
+        Expanded(flex: 4, child: kitchenBody(compact: true, tools: false)),
         toolBar(null),
-        Expanded(child: diningBody(tools: false)),
-        ingredientShelf(compact: true),
+        Expanded(flex: 7, child: diningBody(tools: false)),
       ]);
     } else {
       col = Column(children: [
@@ -2047,7 +2045,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       );
 
   Widget kitchenBody({bool compact = false, bool tools = true}) => Column(children: [
-        orderBar(),
+        ticketRail(compact: compact),
         if (tools) toolBar(true),
         Expanded(child: kitchenScene()),
         ingredientShelf(compact: compact),
@@ -2301,7 +2299,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   /// Thanh treo phiếu order
   Widget ticketRail({bool compact = false}) => Container(
-        height: compact ? 70 : 76,
+        height: compact ? 60 : 68,
         decoration: const BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF90A4AE), Color(0xFF607D8B)]),
         ),
@@ -2321,8 +2319,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     return Transform.rotate(
       angle: ((tk.id % 3) - 1) * 0.04,
       child: Container(
-        width: 62,
-        margin: const EdgeInsets.fromLTRB(3, 4, 3, 4),
+        width: 60,
+        margin: const EdgeInsets.fromLTRB(3, 3, 3, 3),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
@@ -2330,7 +2328,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))],
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          DishIcon(tk.recipe.id, size: 32),
+          DishIcon(tk.recipe.id, size: 26),
           Text('Bàn ${tk.table + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
