@@ -1955,10 +1955,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       col = Column(children: [
         hud(race ? '🏁 THI ĐẤU' : '🍽️ $chefName & $waiterName'),
         if (race) oppBar(),
-        ticketRail(compact: true),
+        orderBar(),
         toolBar(null),
         Expanded(child: diningBody(tools: false, islandActive: true)),
-        stationPanel(),
         ingredientShelf(compact: true),
       ]);
     } else {
@@ -2057,12 +2056,41 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       );
 
   Widget kitchenBody({bool compact = false, bool tools = true}) => Column(children: [
-        ticketRail(compact: compact),
+        orderBar(),
         if (tools) toolBar(true),
         Expanded(child: kitchenScene()),
-        stationPanel(),
         ingredientShelf(compact: compact),
       ]);
+
+  /// Một thanh duy nhất ở trên cùng: các order đang chờ + thành phần món của bếp đang nấu.
+  /// Chưa có gì thì chỉ hiện một dòng nhắc.
+  Widget orderBar() {
+    final hasActive = activeStation >= 0 && activeStation < stations.length && stations[activeStation].t != null;
+    if (queue.isEmpty) return stationPanel();
+    return Container(
+      decoration: const BoxDecoration(color: Pal.surface, border: Border(bottom: BorderSide(color: Pal.line, width: 1.5))),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          height: 62,
+          color: const Color(0xFFFFF7E8),
+          padding: const EdgeInsets.only(left: 8),
+          child: Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(color: Pal.coral, borderRadius: BorderRadius.circular(12)),
+              child: Text('📋 ${queue.length}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            ),
+            Expanded(
+              child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 4), children: [
+                for (final tk in queue) _ticketCard(tk),
+              ]),
+            ),
+          ]),
+        ),
+        stationPanel(top: hasActive),
+      ]),
+    );
+  }
 
   // ---------- Bảng thao tác bếp: biểu tượng lớn, dễ bấm ----------
   Widget _gauge(double value, double z0, double z1, {Color marker = Pal.ink}) => LayoutBuilder(builder: (ctx, cons) {
@@ -2127,23 +2155,23 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget stationPanel() {
+  Widget stationPanel({bool top = true}) {
     final i = activeStation;
     Widget box(Widget child) => Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          decoration: const BoxDecoration(color: Pal.surface, border: Border(top: BorderSide(color: Pal.line, width: 1.5))),
+          decoration: const BoxDecoration(color: Pal.surface, border: Border(bottom: BorderSide(color: Pal.line, width: 1.5))),
           child: child,
         );
     if (i < 0 || i >= stations.length || stations[i].t == null) {
       return box(SizedBox(
-        height: 52,
+        height: queue.isEmpty ? 40 : 30,
         child: Row(children: [
-          const Text('👨‍🍳', style: TextStyle(fontSize: 34)),
+          Text(queue.isEmpty ? '💤' : '👆', style: const TextStyle(fontSize: 24)),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              queue.isNotEmpty ? 'Chạm vào một bếp trống để nhận order (${queue.length} order đang chờ)' : 'Chưa có order nào, chờ phục vụ ghi món…',
+              queue.isNotEmpty ? 'Chạm vào một bếp trống để nhận order' : 'Chưa có order nào, chờ phục vụ ghi món…',
               style: const TextStyle(fontWeight: FontWeight.w700, color: Pal.text),
             ),
           ),
@@ -2300,18 +2328,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final c = tk.table < tables.length ? tables[tk.table].c : null;
     final frac = c == null ? 0.0 : (c.pat / c.maxPat).clamp(0.0, 1.0);
     return Transform.rotate(
-      angle: ((tk.id % 3) - 1) * 0.05,
+      angle: ((tk.id % 3) - 1) * 0.04,
       child: Container(
-        width: 64,
-        margin: const EdgeInsets.fromLTRB(3, 3, 3, 3),
+        width: 62,
+        margin: const EdgeInsets.fromLTRB(3, 4, 3, 4),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFFDE7),
-          borderRadius: BorderRadius.circular(4),
-          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 3, offset: Offset(0, 2))],
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Pal.line),
+          boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 4, offset: Offset(0, 2))],
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(width: 8, height: 8, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
-          DishIcon(tk.recipe.id, size: 34),
+          DishIcon(tk.recipe.id, size: 32),
           Text('Bàn ${tk.table + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),

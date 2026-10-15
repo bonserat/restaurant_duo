@@ -35,13 +35,13 @@ class Upg {
 const upgrades = [
   Upg('stove', 'Nâng cấp bếp / lò / máy pha', '🔥', 'Nấu nhanh hơn 15% mỗi cấp', 4, 150),
   Upg('stations', 'Thêm vị trí nấu', '🍳', 'Nấu thêm 1 món cùng lúc', 2, 200),
-  Upg('tables', 'Bàn ghế mới', '🪑', 'Thêm 1 bàn cho khách (tối đa 12 bàn)', 8, 100),
+  Upg('tables', 'Bàn ghế mới', '🪑', 'Thêm 1 bàn cho khách (tối đa 10 bàn)', 6, 100),
   Upg('decor', 'Trang trí quán', '🖼️', 'Khách kiên nhẫn hơn, tip nhiều hơn', 4, 120),
   Upg('clean', 'Dụng cụ dọn dẹp', '🧹', 'Bàn bẩn tự được dọn sau vài giây', 3, 180),
 ];
 
 const venues = [
-  Venue('cafe', 'Quán cà phê', '☕', 0, 12, 1.0, [
+  Venue('cafe', 'Quán cà phê', '☕', 0, 10, 1.0, [
     Ing('bean', '🫘', 'Cà phê'),
     Ing('milk', '🥛', 'Sữa'),
     Ing('ice', '🧊', 'Đá'),
@@ -55,7 +55,7 @@ const venues = [
     Recipe('tra_dau', 'Trà dâu', '🍹', ['tea', 'straw', 'ice'], 5, 45, 200),
     Recipe('sinh_to', 'Sinh tố dâu', '🥤', ['straw', 'milk', 'ice', 'honey'], 7, 65, 350),
   ]),
-  Venue('bakery', 'Tiệm bánh', '🥐', 300, 12, 1.0, [
+  Venue('bakery', 'Tiệm bánh', '🥐', 300, 10, 1.0, [
     Ing('flour', '🌾', 'Bột'),
     Ing('egg', '🥚', 'Trứng'),
     Ing('butter', '🧈', 'Bơ'),
@@ -68,7 +68,7 @@ const venues = [
     Recipe('cupcake', 'Cupcake dâu', '🧁', ['flour', 'egg', 'straw'], 6, 50, 150),
     Recipe('cheesecake', 'Cheesecake', '🍰', ['flour', 'egg', 'cheese', 'butter'], 8, 80, 300),
   ]),
-  Venue('chinese', 'Nhà hàng Trung', '🥟', 600, 12, 0.95, [
+  Venue('chinese', 'Nhà hàng Trung', '🥟', 600, 10, 0.95, [
     Ing('rice', '🍚', 'Cơm'),
     Ing('egg', '🥚', 'Trứng'),
     Ing('dough', '🫓', 'Bột bọc', 1),
@@ -82,7 +82,7 @@ const venues = [
     Recipe('ha_cao', 'Há cảo', '🥟', ['dough', 'meat', 'veg'], 6, 60, 200),
     Recipe('suon', 'Sườn chua ngọt', '🍖', ['meat', 'sauce', 'rice'], 8, 85, 350),
   ]),
-  Venue('mexican', 'Nhà hàng Mexico', '🌮', 900, 12, 0.9, [
+  Venue('mexican', 'Nhà hàng Mexico', '🌮', 900, 10, 0.9, [
     Ing('tortilla', '🫓', 'Vỏ bánh'),
     Ing('meat', '🥩', 'Thịt', 3),
     Ing('cheese', '🧀', 'Phô mai', 1),

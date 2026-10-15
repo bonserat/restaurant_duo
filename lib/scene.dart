@@ -724,13 +724,9 @@ void _speech(Canvas c, String text, Offset anchor, double maxW, double fs, {Colo
 //  BỐ CỤC SẢNH: đảo bếp ở giữa, bàn xếp vòng quanh
 // =====================================================================
 /// Đảo bếp (toạ độ tương đối trên phần sàn của sảnh)
-const islandRel = Rect.fromLTRB(0.23, 0.40, 0.77, 0.66);
+const islandRel = Rect.fromLTRB(0.29, 0.37, 0.74, 0.60);
 
 double diningWallH(double h) => max(64.0, h * 0.2);
-
-/// Cỡ bàn theo số bàn: càng nhiều bàn càng nhỏ để không chồng lên nhau
-double tableRadius(double w, double floorH, int n) =>
-    min(min(w * (n <= 6 ? 0.085 : (n <= 10 ? 0.075 : 0.064)), floorH * (n <= 6 ? 0.09 : (n <= 10 ? 0.08 : 0.07))), 40.0);
 
 /// Khung đảo bếp tính bằng pixel trong một sảnh kích thước [sz]
 Rect islandRectFor(Size sz) {
@@ -739,38 +735,207 @@ Rect islandRectFor(Size sz) {
   return Rect.fromLTRB(sz.width * islandRel.left, top + fh * islandRel.top, sz.width * islandRel.right, top + fh * islandRel.bottom);
 }
 
-/// Vị trí mặc định của bàn thứ [i] trong [n] bàn: hàng trên, hai bên, hàng dưới quanh đảo bếp
+/// Số bàn ở hàng trên, hàng dưới, cột trái. Bên phải (phía cửa) luôn để trống làm lối đi.
+const _tablePlan = {
+  1: [0, 1, 0], 2: [1, 1, 0], 3: [1, 2, 0], 4: [2, 2, 0], 5: [2, 3, 0],
+  6: [3, 3, 0], 7: [3, 4, 0], 8: [4, 4, 0], 9: [4, 5, 0], 10: [4, 5, 1],
+};
+const maxTablesLayout = 10;
+
+List<int> _plan(int n) => _tablePlan[n.clamp(1, maxTablesLayout)]!;
+
+/// Cỡ bàn: vừa với khoảng cách giữa các bàn trong hàng đông nhất
+double tableRadius(double w, double floorH, int n) {
+  final pl = _plan(n);
+  final sp = min(0.085, min(0.72 / max(1, pl[0]) / 2.5, 0.88 / max(1, pl[1]) / 2.5));
+  return min(min(w * sp, floorH * (n <= 6 ? 0.09 : (n <= 8 ? 0.08 : 0.072))), 40.0);
+}
+
+/// Vị trí mặc định của bàn thứ [i] trong [n] bàn (toạ độ tương đối trên sàn)
 Offset defaultTablePos(int i, int n) {
-  const plan = {
-    1: [0, 1, 0, 0], 2: [1, 1, 0, 0], 3: [1, 2, 0, 0], 4: [2, 2, 0, 0], 5: [2, 3, 0, 0], 6: [2, 2, 1, 1],
-    7: [2, 3, 1, 1], 8: [3, 3, 1, 1], 9: [3, 4, 1, 1], 10: [4, 4, 1, 1], 11: [5, 4, 1, 1], 12: [5, 5, 1, 1],
-  };
-  final pl = plan[n.clamp(1, 12)]!;
+  final pl = _plan(n);
   final tc = pl[0], bc = pl[1], lc = pl[2];
-  double rowX(int j, int k) => 0.1 + 0.8 * (j + 0.5) / k;
-  List<double> colY(int k) => k == 1 ? const [0.53] : const [0.38, 0.6];
   var k = i;
-  if (k < tc) return Offset(rowX(k, tc), 0.16);
+  if (k < tc) return Offset(0.06 + 0.72 * (k + 0.5) / tc, 0.16); // hàng trên chừa góc phải cho cửa
   k -= tc;
-  if (k < lc) return Offset(0.1, colY(lc)[k]);
+  if (k < lc) return Offset(0.085, lc == 1 ? 0.49 : const [0.4, 0.64][k]);
   k -= lc;
-  if (k < lc) return Offset(0.9, colY(lc)[k]);
-  k -= lc;
-  return Offset(rowX(min(k, bc - 1), max(1, bc)), 0.88);
+  return Offset(0.06 + 0.88 * (min(k, bc - 1) + 0.5) / max(1, bc), 0.88);
 }
 
 // =====================================================================
 //  SẢNH NHÀ HÀNG (vai PHỤC VỤ)
 // =====================================================================
 // Khách đi ngoài phố (thấy qua cửa sổ) rồi mới vào cửa; khách về thì ra cửa rồi đi tiếp ngoài phố
-const _outside = 1.2, _inside = 1.1, _outInside = 1.3, _outOutside = 1.2;
-const _walkIn = _outside + _inside, _walkOut = _outInside + _outOutside;
+const _outside = 1.2, _outOutside = 1.2;
+
+/// Lưới tìm đường trên sàn: người và thú cưng đi vòng quanh bàn, đảo bếp, đồ trang trí
+class _Nav {
+  final double cell, x0, y0;
+  final int cols, rows;
+  final List<bool> blocked;
+  _Nav(this.cell, this.x0, this.y0, this.cols, this.rows, this.blocked);
+
+  factory _Nav.build(Rect area, double cell, List<Rect> obstacles) {
+    final cols = max(1, (area.width / cell).floor());
+    final rows = max(1, (area.height / cell).floor());
+    final b = List<bool>.filled(cols * rows, false);
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        final p = Offset(area.left + (x + 0.5) * cell, area.top + (y + 0.5) * cell);
+        for (final o in obstacles) {
+          if (o.contains(p)) {
+            b[y * cols + x] = true;
+            break;
+          }
+        }
+      }
+    }
+    return _Nav(cell, area.left, area.top, cols, rows, b);
+  }
+
+  int? _idx(Offset p) {
+    final cx = ((p.dx - x0) / cell).floor(), cy = ((p.dy - y0) / cell).floor();
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return null;
+    return cy * cols + cx;
+  }
+
+  Offset _center(int i) => Offset(x0 + (i % cols + 0.5) * cell, y0 + (i ~/ cols + 0.5) * cell);
+
+  bool free(Offset p) {
+    final i = _idx(p);
+    return i != null && !blocked[i];
+  }
+
+  int? _nearest(Offset p) {
+    final i = _idx(p);
+    if (i != null && !blocked[i]) return i;
+    int? best;
+    var bd = double.infinity;
+    for (var k = 0; k < blocked.length; k++) {
+      if (blocked[k]) continue;
+      final d = (_center(k) - p).distanceSquared;
+      if (d < bd) {
+        bd = d;
+        best = k;
+      }
+    }
+    return best;
+  }
+
+  Offset nearestFree(Offset p) {
+    final i = _nearest(p);
+    return i == null ? p : (free(p) ? p : _center(i));
+  }
+
+  bool _los(Offset a, Offset b) {
+    final n = max(1, ((b - a).distance / (cell * 0.35)).ceil());
+    for (var k = 1; k < n; k++) {
+      if (!free(Offset.lerp(a, b, k / n)!)) return false;
+    }
+    return true;
+  }
+
+  /// Đường đi từ [from] tới [to] (không gồm điểm đầu). Điểm đích bị chặn thì dừng ở ô trống gần nhất.
+  List<Offset> path(Offset from, Offset to) {
+    final s = _nearest(from), g = _nearest(to);
+    if (s == null || g == null) return [to];
+    final goal = free(to) ? to : _center(g);
+    if (s == g) return [goal];
+    final n = blocked.length;
+    final gs = List<double>.filled(n, double.infinity);
+    final prev = List<int>.filled(n, -1);
+    final closed = List<bool>.filled(n, false);
+    final open = <int>[s];
+    gs[s] = 0;
+    final gc = _center(g);
+    double hfun(int i) => (_center(i) - gc).distance / cell;
+    var found = false;
+    while (open.isNotEmpty) {
+      var bi = 0;
+      var bf = double.infinity;
+      for (var k = 0; k < open.length; k++) {
+        final f = gs[open[k]] + hfun(open[k]);
+        if (f < bf) {
+          bf = f;
+          bi = k;
+        }
+      }
+      final cur = open.removeAt(bi);
+      if (cur == g) {
+        found = true;
+        break;
+      }
+      if (closed[cur]) continue;
+      closed[cur] = true;
+      final cx = cur % cols, cy = cur ~/ cols;
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          if (dx == 0 && dy == 0) continue;
+          final nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+          final ni = ny * cols + nx;
+          if (blocked[ni] || closed[ni]) continue;
+          // không cắt góc vật cản
+          if (dx != 0 && dy != 0 && (blocked[cy * cols + nx] || blocked[ny * cols + cx])) continue;
+          final ng = gs[cur] + (dx != 0 && dy != 0 ? 1.414 : 1.0);
+          if (ng < gs[ni]) {
+            gs[ni] = ng;
+            prev[ni] = cur;
+            open.add(ni);
+          }
+        }
+      }
+    }
+    if (!found) return [goal];
+    final cells = <Offset>[];
+    for (var k = g; k != -1 && k != s; k = prev[k]) {
+      cells.insert(0, _center(k));
+    }
+    final pts = <Offset>[from, ...cells];
+    pts[pts.length - 1] = goal;
+    // rút gọn: bỏ các điểm thừa khi nhìn thẳng được tới điểm xa hơn
+    final out = <Offset>[];
+    var i = 0;
+    while (i < pts.length - 1) {
+      var j = pts.length - 1;
+      while (j > i + 1 && !_los(pts[i], pts[j])) {
+        j--;
+      }
+      out.add(pts[j]);
+      i = j;
+    }
+    return out;
+  }
+}
+
+double _pathLen(List<Offset> p) {
+  var l = 0.0;
+  for (var k = 1; k < p.length; k++) {
+    l += (p[k] - p[k - 1]).distance;
+  }
+  return l;
+}
+
+/// Điểm trên đường đi sau quãng [dist]; trả kèm hướng (true = đang đi sang trái)
+(Offset, bool) _along(List<Offset> p, double dist) {
+  if (p.isEmpty) return (Offset.zero, false);
+  var d = dist;
+  for (var k = 1; k < p.length; k++) {
+    final seg = (p[k] - p[k - 1]).distance;
+    if (d <= seg && seg > 0) return (Offset.lerp(p[k - 1], p[k], d / seg)!, p[k].dx < p[k - 1].dx);
+    d -= seg;
+  }
+  return (p.last, p.length > 1 && p.last.dx < p[p.length - 2].dx);
+}
 
 class _Leaver {
   final int table, seed;
   final double t0;
   final bool happy;
   final String npc;
+  List<Offset> path = [];
+  double dur = 1.3; // thời gian đi trong quán tới cửa
   _Leaver(this.table, this.seed, this.t0, this.happy, [this.npc = '']);
 }
 
@@ -836,8 +1001,17 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
   double get _t => _clock.value;
 
   // Người phục vụ (toạ độ tỉ lệ 0..1 để không lệch khi đổi kích thước)
-  Offset _wp = const Offset(0.42, 0.35), _wt = const Offset(0.42, 0.35);
+  Offset _wp = Offset.zero; // vị trí người phục vụ (pixel)
+  List<Offset> _wPath = [];
   bool _placed = false, _walking = false, _left = false;
+  // Tìm đường
+  _Nav? _nav;
+  String _navKey = '';
+  final Map<int, List<Offset>> _inPath = {};
+  List<double> _seatAt = [];
+  final Map<String, List<Offset>> _petPath = {};
+  final Map<String, Offset> _petGoal = {};
+  final Map<String, double> _petPlanAt = {};
   double _phase = 0, _wipeUntil = -1;
 
   // Theo dõi thay đổi để chạy hoạt cảnh
@@ -901,6 +1075,8 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       _seed = List.filled(n, 0);
       _npcP = List.filled(n, '');
       _rang = List.filled(n, true);
+      _seatAt = List.filled(n, -10.0);
+      _inPath.clear();
       _leavers.clear();
       _coins.clear();
       first = true;
@@ -911,9 +1087,18 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         _seed[i] = ++_seedN * 7919 + i * 31;
         _arr[i] = first ? -10.0 : _t;
         _rang[i] = first;
+        _seatAt[i] = first ? -10.0 : _t + 1e6; // biết đường đi rồi mới tính giờ ngồi
+        _inPath.remove(i);
       } else if (!occ && _occ[i] && !first) {
         final happy = tb[i].dirty; // được phục vụ xong thì bàn bẩn
-        _leavers.add(_Leaver(i, _seed[i], _t, happy, _npcP[i]));
+        final lv = _Leaver(i, _seed[i], _t, happy, _npcP[i]);
+        if (i < _tc.length) {
+          final seat = _seat(i);
+          final ap = _approach(i, _door);
+          lv.path = [seat, ap, ...(_nav?.path(ap, _door) ?? [_door])];
+          lv.dur = _pathLen(lv.path) / _custSpeed;
+        }
+        _leavers.add(lv);
         if (happy) _coins.add(_Coin(i, _t));
         Sound.sfx(happy ? 'coin' : 'angry');
       }
@@ -957,23 +1142,26 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
   void _onTick(Duration e) {
     final t = e.inMicroseconds / 1e6;
     final dt = (t - _t).clamp(0.0, 0.1).toDouble();
-    if (_size != Size.zero) {
-      final cur = Offset(_wp.dx * _size.width, _wp.dy * _size.height);
-      final tgt = Offset(_wt.dx * _size.width, _wt.dy * _size.height);
-      final d = tgt - cur;
-      final dist = d.distance;
-      final step = max(_size.width, 300.0) * 0.75 * dt;
-      if (dist > 1) {
-        final nc = dist <= step ? tgt : cur + d / dist * step;
-        _wp = Offset(nc.dx / _size.width, nc.dy / _size.height);
-        _walking = true;
+    if (_size != Size.zero && _wPath.isNotEmpty) {
+      var step = max(_size.width, 300.0) * 0.75 * dt;
+      while (step > 0 && _wPath.isNotEmpty) {
+        final d = _wPath.first - _wp;
+        final dist = d.distance;
         if (d.dx.abs() > 2) _left = d.dx < 0;
-        _phase += dt * 14;
-      } else {
-        _walking = false;
+        if (dist <= step) {
+          _wp = _wPath.removeAt(0);
+          step -= dist;
+        } else {
+          _wp = _wp + d / dist * step;
+          step = 0;
+        }
       }
+      _walking = true;
+      _phase += dt * 14;
+    } else {
+      _walking = false;
     }
-    _leavers.removeWhere((l) => t - l.t0 > _walkOut);
+    _leavers.removeWhere((l) => t - l.t0 > l.dur + _outOutside);
     for (var i = 0; i < _rang.length && i < _arr.length; i++) {
       if (!_rang[i] && t - _arr[i] >= _outside) {
         _rang[i] = true;
@@ -984,12 +1172,68 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     _clock.value = t;
   }
 
+  double get _custSpeed => max(_size.width, 300.0) * 0.45;
+
   void _goTo(Offset px) {
     final w = _size.width, h = _size.height;
     if (w < 40 || h < 40) return;
-    final x = px.dx.clamp(_s * 0.3, max(_s * 0.3, w - _s * 0.3)).toDouble();
-    final y = px.dy.clamp(_wallH + _s * 0.4, max(_wallH + _s * 0.4, h - 4)).toDouble();
-    _wt = Offset(x / w, y / h);
+    final nav = _nav;
+    _wPath = nav == null ? [px] : nav.path(_wp, px);
+  }
+
+  /// Chỗ đứng cạnh bàn [i] (không đứng đè lên bàn), chọn phía gần [from] nhất
+  Offset _approach(int i, Offset from) {
+    final ct = _tc[i], r = _r;
+    final cands = [
+      ct + Offset(r * 1.6, -r * 0.5),
+      ct - Offset(r * 1.6, r * 0.5),
+      ct + Offset(0, r * 1.3),
+      ct - Offset(0, r * 2.3),
+      ct + Offset(r * 1.6, r * 0.6),
+      ct + Offset(-r * 1.6, r * 0.6),
+    ];
+    final nav = _nav;
+    Offset? best;
+    var bd = double.infinity;
+    for (final p in cands) {
+      if (nav != null && !nav.free(p)) continue;
+      final d = (p - from).distance;
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best ?? (nav?.nearestFree(cands.first) ?? cands.first);
+  }
+
+  /// Dựng lại lưới vật cản khi bố cục thay đổi
+  void _buildNav(double w, double h, double floorTop, double floorH, double r, List<Offset> plants) {
+    final key = '${w.round()}x${h.round()}|${_tc.map((o) => '${o.dx.round()},${o.dy.round()}').join(';')}|'
+        '${widget.decos.map((d) => '${d.type}${(d.x * 100).round()},${(d.y * 100).round()}').join(';')}|${plants.length}';
+    if (key == _navKey && _nav != null) return;
+    _navKey = key;
+    final pad = r * 0.32; // khoảng hở để người không chạm sát đồ vật
+    final obs = <Rect>[
+      for (final ct in _tc) Rect.fromLTRB(ct.dx - r * 1.15 - pad, ct.dy - r * 1.6 - pad, ct.dx + r * 1.15 + pad, ct.dy + r * 0.75 + pad),
+      islandRectFor(Size(w, h)).inflate(pad),
+    ];
+    for (final d in widget.decos) {
+      final dt = decoById(d.type);
+      if (dt.wall) continue;
+      final base = Offset(d.x * w, floorTop + d.y * floorH) + Offset(0, r * 0.35);
+      final sz = r * dt.size * 1.6;
+      final wide = dt.id == 'bar' ? 1.9 : (dt.id == 'sofa' ? 1.5 : (dt.id == 'fish' ? 1.3 : 0.8));
+      obs.add(Rect.fromLTRB(base.dx - sz * wide / 2 - pad, base.dy - sz * 0.45 - pad, base.dx + sz * wide / 2 + pad, base.dy + pad * 0.5));
+    }
+    for (final p in plants) {
+      obs.add(Rect.fromCenter(center: p + Offset(0, r * 0.1), width: r * 1.1 + pad * 2, height: r * 0.7 + pad * 2));
+    }
+    final cell = max(8.0, r * 0.42);
+    final area = Rect.fromLTRB(r * 0.3, floorTop + 2, w - r * 0.3, h - 2);
+    _nav = _Nav.build(area, cell, obs);
+    // vị trí đang đứng nếu bị kẹt thì dời ra ô trống
+    if (_placed) _wp = _nav!.nearestFree(_wp);
+    _inPath.clear();
   }
 
   Offset _incPos(Incident x) => Offset(x.x * _size.width, _floorTop + x.y * (_size.height - _floorTop));
@@ -1027,7 +1271,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     for (var i = 0; i < _hit.length && i < widget.tables.length; i++) {
       if (_hit[i].contains(p)) {
         widget.onTable(i);
-        _goTo(_tc[i] + Offset(_r * 1.45, _r * 0.55));
+        _goTo(_approach(i, _wp));
         return;
       }
     }
@@ -1075,10 +1319,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     final slotW = (cx1 - cx0) / 6;
     _slots = [for (var j = 0; j < 6; j++) Rect.fromLTWH(cx0 + slotW * j, wallH * 0.3, slotW, wallH * 0.7)];
     _door = Offset(w * 0.895, wallH + s * 0.35);
-    if (!_placed) {
-      _placed = true;
-      _wp = _wt = Offset(0.42, min(0.95, (wallH + s * 0.6) / h));
-    }
+    _door = Offset(w * 0.895, floorTop + 4);
 
     // ---------- Sàn ----------
     final tile = max(24.0, w / 9);
@@ -1174,40 +1415,52 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     _drawStreetFront(c, w, wallH, s, t, th);
     c.drawRect(Rect.fromLTWH(0, wallH - 4, w, 5), Paint()..color = th.trim);
 
+    // ---------- Tìm đường ----------
+    final plants = [
+      Offset(r * 0.7, h - r * 0.5),
+      Offset(w - r * 0.7, h - r * 0.5),
+      Offset(w * 0.75, wallH + r * 0.4),
+      Offset(w * 0.5, h - r * 0.4),
+    ].take(min(widget.decor, 4)).toList();
+    _buildNav(w, h, floorTop, floorH, r, plants);
+    if (!_placed) {
+      _placed = true;
+      _wp = _nav?.nearestFree(Offset(w * 0.6, floorTop + floorH * 0.3)) ?? Offset(w * 0.6, floorTop + floorH * 0.3);
+    }
+    final custSp = _custSpeed;
+    for (var i = 0; i < n; i++) {
+      if (tb[i].c == null || _seatAt[i] < 0 || _inPath.containsKey(i)) continue;
+      final ap = _approach(i, _door);
+      final path = [_door, ...(_nav?.path(_door, ap) ?? [ap]), _seat(i)];
+      _inPath[i] = path;
+      _seatAt[i] = _arr[i] + _outside + _pathLen(path) / custSp;
+    }
+
     // ---------- Vẽ theo chiều sâu (y nhỏ vẽ trước) ----------
     final items = <_Item>[];
     for (var i = 0; i < n; i++) {
       items.add(_Item(_tc[i].dy, () => _drawTable(c, i, t, th)));
     }
     for (var i = 0; i < n; i++) {
-      if (tb[i].c != null && t - _arr[i] < _walkIn && t - _arr[i] >= _outside) {
-        final k = ((t - _arr[i] - _outside) / _inside).clamp(0.0, 1.0).toDouble();
-        final seat = _seat(i);
-        final p = Offset.lerp(_door, seat, Curves.easeInOut.transform(k))!;
+      final path = _inPath[i];
+      if (tb[i].c != null && path != null && t < _seatAt[i] && t - _arr[i] >= _outside) {
+        final (p, left) = _along(path, (t - _arr[i] - _outside) * custSp);
         final npc = tb[i].c!.npc;
         final look = custLook(npc, _seed[i]);
         final ss = npc == 'student' ? s * 0.82 : s;
-        items.add(_Item(p.dy, () => drawPerson(c, p, ss, look, walking: true, phase: t * 13 + i, facingLeft: seat.dx < _door.dx)));
+        items.add(_Item(p.dy, () => drawPerson(c, p, ss, look, walking: true, phase: t * 13 + i, facingLeft: left)));
       }
     }
     for (final l in _leavers) {
-      if (l.table >= n || t - l.t0 > _outInside) continue;
-      final k = ((t - l.t0) / _outInside).clamp(0.0, 1.0).toDouble();
-      final from = _seat(l.table);
-      final p = Offset.lerp(from, _door, Curves.easeIn.transform(k))!;
+      if (l.table >= n || t - l.t0 > l.dur || l.path.isEmpty) continue;
+      final (p, left) = _along(l.path, (t - l.t0) * custSp);
       final look = custLook(l.npc, l.seed);
       items.add(_Item(
         p.dy,
         () => drawPerson(c, p, s, look,
-            walking: true, phase: t * 13, facingLeft: _door.dx < from.dx, mood: l.happy ? 0 : 2, armUp: l.happy && sin(t * 9) > -0.3),
+            walking: true, phase: t * 13, facingLeft: left, mood: l.happy ? 0 : 2, armUp: l.happy && sin(t * 9) > -0.3),
       ));
     }
-    final plants = [
-      Offset(r * 0.7, h - r * 0.5),
-      Offset(w - r * 0.7, h - r * 0.5),
-      Offset(w * 0.75, wallH + r * 0.4),
-      Offset(w * 0.5, h - r * 0.4),
-    ];
     final plantEmoji = style == 'tet' ? '🌼' : (style == 'beach' ? '🌴' : (style == 'sakura' ? '🌸' : '🪴'));
     for (var k = 0; k < widget.decor && k < plants.length; k++) {
       final pp = plants[k];
@@ -1238,7 +1491,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     for (final d in widget.counter) {
       if (d.ticketId == widget.selDishId) carry = d.recipe.id;
     }
-    final wp = Offset(_wp.dx * w, _wp.dy * h);
+    final wp = _wp;
     final wiping = t < _wipeUntil && !_walking;
     items.add(_Item(
       wp.dy,
@@ -1308,7 +1561,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
           target = rat != null ? _incPos(rat) : _wander(t, w, h - r * 1.6, 21, 9).$1;
           break;
         case 'hamster':
-          target = Offset(w * 0.66, floorTop + r * 0.55);
+          target = Offset(w - r * 0.9, floorTop + floorH * 0.72); // lồng hamster sát tường phải
           break;
         case 'parrot':
           target = Offset(w * 0.8, floorTop + r * 0.25);
@@ -1316,15 +1569,41 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         default:
           target = _wander(t, w, h - r, 30, 5).$1;
       }
-      final cur = _petPos[id] ?? target;
-      final d = target - cur;
+      final nav = _nav;
+      final fixed = id == 'hamster' || id == 'parrot';
+      var cur = _petPos[id] ?? (fixed || nav == null ? target : nav.nearestFree(target));
+      // lập lại đường đi khi đích đổi chỗ (chó đuổi chuột: cập nhật thường xuyên)
+      final goal = _petGoal[id];
+      final replan = goal == null || (goal - target).distance > r * 0.6 || (id == 'dog' && rat != null && t - (_petPlanAt[id] ?? 0) > 0.5);
+      if (replan) {
+        _petGoal[id] = target;
+        _petPlanAt[id] = t;
+        _petPath[id] = fixed || nav == null ? [target] : nav.path(cur, target);
+      }
+      final path = _petPath[id] ?? [target];
       final fast = id == 'dog' && rat != null;
-      final step = max(w, 300.0) * (fast ? 0.55 : 0.3) * dt;
-      final nxt = d.distance <= step ? target : cur + d / d.distance * step;
-      if (d.dx.abs() > 1) _petLeft[id] = d.dx < 0;
-      _petMoving[id] = d.distance > 1;
-      _petPos[id] = nxt;
-      if (id == 'cat') _catBeside = catT >= 0 && d.distance <= 1;
+      var step = max(w, 300.0) * (fast ? 0.55 : 0.3) * dt;
+      var moving = false;
+      while (step > 0 && path.isNotEmpty) {
+        final d = path.first - cur;
+        final dist = d.distance;
+        if (dist < 0.5) {
+          path.removeAt(0);
+          continue;
+        }
+        moving = true;
+        if (d.dx.abs() > 1) _petLeft[id] = d.dx < 0;
+        if (dist <= step) {
+          cur = path.removeAt(0);
+          step -= dist;
+        } else {
+          cur = cur + d / dist * step;
+          step = 0;
+        }
+      }
+      _petMoving[id] = moving;
+      _petPos[id] = cur;
+      if (id == 'cat') _catBeside = catT >= 0 && path.isEmpty;
     }
   }
 
@@ -1479,7 +1758,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     }
     for (final l in _leavers) {
       final dt = t - l.t0;
-      if (dt > _outInside - 0.35 && dt < _outInside + 0.3) open = true;
+      if (dt > l.dur - 0.35 && dt < l.dur + 0.3) open = true;
     }
 
     // khung
@@ -1577,7 +1856,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     }
     // khách ra về
     for (final l in _leavers) {
-      final dt = t - l.t0 - _outInside;
+      final dt = t - l.t0 - l.dur;
       if (dt < 0 || dt >= _outOutside) continue;
       final k = Curves.easeIn.transform((dt / _outOutside).clamp(0.0, 1.0).toDouble());
       final x = doorX - k * (doorX - all.left + 24);
@@ -1645,7 +1924,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     final ct = _tc[i];
     final r = _r;
     final cu = tb.c;
-    final seated = cu != null && t - _arr[i] >= _walkIn;
+    final seated = cu != null && t >= _seatAt[i];
 
     // Ghế (phía sau bàn)
     final chair = RRect.fromRectAndRadius(Rect.fromCenter(center: ct + Offset(0, -r * 0.95), width: r * 1.3, height: r * 1.3), Radius.circular(r * 0.25));
@@ -1747,14 +2026,14 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       _emoji(c, '🧹', bc, r * 0.6 * pulse);
       return;
     }
-    if (cu == null || t - _arr[i] < _walkIn) return;
+    if (cu == null || t < _seatAt[i]) return;
 
     // Khách đặc biệt: bảng tên và câu chuyện khi vừa ngồi xuống
     final npc = npcById(cu.npc);
     if (npc != null) {
       final head = _seat(i) - Offset(0, (cu.npc == 'student' ? _s * 0.82 : _s) * 0.8);
       _pill(c, '${npc.emoji} ${npc.name}', head, max(9.0, r * 0.28), bg: const Color(0xFFFFF8E1), fg: const Color(0xFF6D4C41));
-      final since = t - _arr[i] - _walkIn;
+      final since = t - _seatAt[i];
       if (since < 4.5) {
         _speech(c, npc.lines[min(cu.line, npc.lines.length - 1)], head - Offset(0, r * 0.4), max(130.0, r * 4.5), max(10.0, r * 0.3));
       }
@@ -2120,7 +2399,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     final cheer = t < _cheerUntil && !_walking;
     final stirring = !_walking && !cheer && at < n && st[at].cooking;
     final anyBurnt = st.any((x) => x.burnt);
-    final cs = widget.island ? h * 0.78 : min(h * 0.45, cellW * 0.95);
+    final cs = widget.island ? h * 0.7 : min(h * 0.45, cellW * 0.95);
     if (_cx < 0) _cx = _ox + cellW * (_chefAt + 0.5) + cellW * (widget.island ? 0.0 : 0.3);
     drawPerson(
       c,
