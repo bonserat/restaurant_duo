@@ -735,32 +735,25 @@ Rect islandRectFor(Size sz) {
   return Rect.fromLTRB(sz.width * islandRel.left, top + fh * islandRel.top, sz.width * islandRel.right, top + fh * islandRel.bottom);
 }
 
-/// Số bàn ở hàng trên, hàng dưới, cột trái. Bên phải (phía cửa) luôn để trống làm lối đi.
-const _tablePlan = {
-  1: [0, 1, 0], 2: [1, 1, 0], 3: [1, 2, 0], 4: [2, 2, 0], 5: [2, 3, 0],
-  6: [3, 3, 0], 7: [3, 4, 0], 8: [4, 4, 0], 9: [4, 5, 0], 10: [4, 5, 1],
-};
 const maxTablesLayout = 10;
 
-List<int> _plan(int n) => _tablePlan[n.clamp(1, maxTablesLayout)]!;
-
-/// Cỡ bàn: vừa với khoảng cách giữa các bàn trong hàng đông nhất
-double tableRadius(double w, double floorH, int n) {
-  final pl = _plan(n);
-  final sp = min(0.085, min(0.72 / max(1, pl[0]) / 2.5, 0.88 / max(1, pl[1]) / 2.5));
-  return min(min(w * sp, floorH * (n <= 6 ? 0.09 : (n <= 8 ? 0.08 : 0.072))), 40.0);
+/// Số cột, số hàng bàn
+(int, int) _grid(int n) {
+  final cols = n <= 4 ? max(n, 1) : (n <= 6 ? 3 : 4);
+  return (cols, max(1, (n / cols).ceil()));
 }
 
-/// Vị trí mặc định của bàn thứ [i] trong [n] bàn (toạ độ tương đối trên sàn)
+/// Cỡ bàn theo lưới
+double tableRadius(double w, double floorH, int n) {
+  final (cols, rows) = _grid(n);
+  return min(min(0.86 * w / cols * 0.27, floorH / rows * 0.24), 46.0);
+}
+
+/// Vị trí mặc định của bàn thứ [i] trong [n] bàn (toạ độ tương đối trên sàn).
+/// Bàn xếp lưới ở 86% bên trái, chừa lối đi bên phải dẫn từ cửa vào.
 Offset defaultTablePos(int i, int n) {
-  final pl = _plan(n);
-  final tc = pl[0], bc = pl[1], lc = pl[2];
-  var k = i;
-  if (k < tc) return Offset(0.06 + 0.72 * (k + 0.5) / tc, 0.16); // hàng trên chừa góc phải cho cửa
-  k -= tc;
-  if (k < lc) return Offset(0.085, lc == 1 ? 0.49 : const [0.4, 0.64][k]);
-  k -= lc;
-  return Offset(0.06 + 0.88 * (min(k, bc - 1) + 0.5) / max(1, bc), 0.88);
+  final (cols, rows) = _grid(n);
+  return Offset(0.86 * (i % cols + 0.5) / cols, (i ~/ cols + 0.56) / rows);
 }
 
 // =====================================================================
@@ -1215,7 +1208,6 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     final pad = r * 0.32; // khoảng hở để người không chạm sát đồ vật
     final obs = <Rect>[
       for (final ct in _tc) Rect.fromLTRB(ct.dx - r * 1.15 - pad, ct.dy - r * 1.6 - pad, ct.dx + r * 1.15 + pad, ct.dy + r * 0.75 + pad),
-      islandRectFor(Size(w, h)).inflate(pad),
     ];
     for (final d in widget.decos) {
       final dt = decoById(d.type);
@@ -2820,44 +2812,16 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       _pill(
         c,
         widget.hasOrders ? '👆 Nhận đơn' : 'Bếp trống',
-        Offset(cx, h * 0.09 - b),
+        Offset(cx, max(fs * 1.2, h * 0.1) - b),
         fs * 0.9,
         bg: widget.hasOrders ? const Color(0xFFFFF59D) : Colors.white,
         fg: widget.hasOrders ? const Color(0xFF3E2723) : const Color(0xFF9E9E9E),
       );
       return;
     }
-    drawDish(c, tk.recipe.id, Offset(cx - fs * 2.2, h * 0.075), fs * 2.6, t: t);
-    _pill(c, 'Bàn ${tk.table + 1}', Offset(cx + fs * 1.0, h * 0.075), fs);
-    if (!s.done) {
-      final ings = tk.recipe.ings;
-      final isz = min(cellW * 0.86 / ings.length, h * 0.1);
-      for (var k = 0; k < ings.length; k++) {
-        final ip = Offset(cx + (k - (ings.length - 1) / 2) * isz * 1.15, h * 0.175);
-        final got = s.added.contains(ings[k]);
-        final onBoard = s.board.contains(ings[k]);
-        c.drawCircle(ip, isz * 0.58, Paint()..color = got ? const Color(0xFFC8E6C9) : (onBoard ? const Color(0xFFFFE082) : Colors.white));
-        c.drawCircle(ip, isz * 0.58, Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = got ? Colors.green : const Color(0xFFBDBDBD));
-        _emoji(c, widget.ingEmoji(ings[k]), ip, isz * 0.75, alpha: got ? 0.35 : 1);
-      }
-    }
-    // Thanh nêm nếm: vùng xanh là vừa miệng (mỗi lần rắc không đều tay)
-    if (!s.burnt) {
-      const maxSalt = 5.0;
-      final mb = Rect.fromCenter(center: Offset(cx + fs * 0.6, h * 0.255), width: cellW * 0.62, height: max(5.0, h * 0.022));
-      c.drawRRect(RRect.fromRectAndRadius(mb, const Radius.circular(3)), Paint()..color = const Color(0xFFECEFF1));
-      final z0 = ((s.saltTarget - s.tol) / maxSalt).clamp(0.0, 1.0).toDouble();
-      final z1 = ((s.saltTarget + s.tol) / maxSalt).clamp(0.0, 1.0).toDouble();
-      c.drawRect(Rect.fromLTRB(mb.left + mb.width * z0, mb.top, mb.left + mb.width * z1, mb.bottom), Paint()..color = _a(const Color(0xFF66BB6A), 0.7));
-      final sx = mb.left + mb.width * (s.salt / maxSalt).clamp(0.0, 1.0).toDouble();
-      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(sx, mb.center.dy), width: 4, height: mb.height + 6), const Radius.circular(2)), Paint()..color = const Color(0xFF3E2723));
-      final shaking = t - _shakeAt[i] < 0.3;
-      _emoji(c, widget.seasonEmoji, Offset(mb.left - fs * 0.8, mb.center.dy - (shaking ? sin(t * 40) * 3 : 0)), fs * 1.0);
-    }
-
+    final py = max(fs * 1.2, h * 0.1);
+    if (!s.done) drawDish(c, tk.recipe.id, Offset(cx - fs * 2.2, py), fs * 2.6, t: t);
+    _pill(c, 'Bàn ${tk.table + 1}', Offset(s.done ? cx : cx + fs * 1.0, py), fs);
     // Trạng thái trên cửa lò
     String label;
     Color bg;
@@ -2871,7 +2835,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       label = '';
       bg = Colors.white;
     } else {
-      label = 'Kéo / chạm nguyên liệu';
+      label = '🥕 Thêm nguyên liệu';
       bg = Colors.white;
     }
     if (label.isNotEmpty) _pill(c, label, Offset(cx + 4, ov.center.dy - h * 0.02), fs * 0.72, bg: bg);
@@ -3258,17 +3222,6 @@ class _LayoutEditorState extends State<LayoutEditor> with SingleTickerProviderSt
     c.drawRect(Rect.fromLTWH(0, _wallH - 4, w, 5), Paint()..color = th.trim);
     final hint = _text('Kéo để di chuyển • nhấn giữ đồ trang trí để cất đi', 11, color: _a(Colors.white, 0.9), bold: true);
     hint.paint(c, Offset(w / 2 - hint.width / 2, _wallH * 0.55));
-
-    // đảo bếp cố định ở giữa
-    final il = Rect.fromLTRB(w * islandRel.left, _floorTop + _floorH * islandRel.top, w * islandRel.right, _floorTop + _floorH * islandRel.bottom);
-    final ib = RRect.fromRectAndRadius(il, const Radius.circular(16));
-    c.drawRRect(ib.shift(const Offset(0, 5)), Paint()..color = const Color(0x33000000));
-    c.drawRRect(ib, Paint()..shader = _vg(const Color(0xFFFAFAFA), const Color(0xFFCFD8DC)).createShader(il));
-    for (var k = 0; k < 2; k++) {
-      c.drawCircle(Offset(il.left + il.width * (0.3 + 0.4 * k), il.center.dy), il.height * 0.26, Paint()..color = const Color(0xFF37474F));
-    }
-    final il2 = _text('🍳 Đảo bếp', min(13.0, il.height * 0.18), color: const Color(0xFF455A64), bold: true);
-    il2.paint(c, Offset(il.center.dx - il2.width / 2, il.top + 4));
 
     // vẽ theo chiều sâu
     final items = <_Item>[];

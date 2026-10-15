@@ -1738,7 +1738,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     showGameSheet(context, title: 'Cách chơi', emoji: '📖', builder: (ctx, setS) {
       return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
         _guideCard('👨‍🍳', 'Đầu bếp • $chefName', [
-          'Chạm vào một bếp trên đảo bếp (giữa quán) để nhận order mới.',
+          'Chạm vào một bếp trống để nhận order mới.',
           'Kéo nguyên liệu từ kệ thả vào bếp, hoặc chạm ô nguyên liệu ở bảng thao tác phía dưới.',
           'Nguyên liệu có 🔪 nằm trên thớt: bấm nút "Thái" (hoặc chạm vào bếp) tới khi xong.',
           'Khi nấu, bấm − / + để giữ vạch lửa trong vùng xanh. Lửa quá to lâu sẽ cháy bếp.',
@@ -1951,13 +1951,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     // Bếp ở trên, sảnh ở dưới, cùng một hướng nhìn: ô "Quầy ra món" của sảnh nằm sát bếp.
     Widget col;
     if (mode == 'local' || race) {
-      // Một người lo cả hai việc: đảo bếp nằm giữa sảnh, bàn xếp xung quanh
+      // Một người lo cả hai việc: bếp gọn ở trên, sảnh ở dưới
       col = Column(children: [
         hud(race ? '🏁 THI ĐẤU' : '🍽️ $chefName & $waiterName'),
         if (race) oppBar(),
         orderBar(),
+        SizedBox(height: 150, child: kitchenScene()),
         toolBar(null),
-        Expanded(child: diningBody(tools: false, islandActive: true)),
+        Expanded(child: diningBody(tools: false)),
         ingredientShelf(compact: true),
       ]);
     } else {
@@ -1997,39 +1998,29 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   // --- Phục vụ ---
-  /// Sảnh có đảo bếp ở giữa. [islandActive]: máy này điều khiển được bếp (chơi 1 máy / thi đấu)
-  Widget diningBody({bool tools = true, bool islandActive = false}) => Column(children: [
+  Widget diningBody({bool tools = true}) => Column(children: [
         if (tools) toolBar(false),
         Expanded(
-          child: LayoutBuilder(builder: (ctx, cons) {
-            final ir = islandRectFor(cons.biggest);
-            final island = kitchenScene(island: true);
-            return Stack(children: [
-              Positioned.fill(
-                child: DiningScene(
-                  tables: tables,
-                  counter: counter,
-                  selDishId: selDishId,
-                  venueId: venueId,
-                  decor: decorLv,
-                  style: styleNow,
-                  waiterLook: castLook(waiterName, 'waiter'),
-                  waiterName: waiterName,
-                  tablePos: tablePosNow,
-                  decos: decosNow,
-                  light: lightNow,
-                  pets: petsNow,
-                  incidents: incidents,
-                  tool: tool,
-                  onTable: doTable,
-                  onDish: onDish,
-                  onIncident: doIncident,
-                  onPet: doPet,
-                ),
-              ),
-              Positioned.fromRect(rect: ir, child: islandActive ? island : IgnorePointer(child: island)),
-            ]);
-          }),
+          child: DiningScene(
+            tables: tables,
+            counter: counter,
+            selDishId: selDishId,
+            venueId: venueId,
+            decor: decorLv,
+            style: styleNow,
+            waiterLook: castLook(waiterName, 'waiter'),
+            waiterName: waiterName,
+            tablePos: tablePosNow,
+            decos: decosNow,
+            light: lightNow,
+            pets: petsNow,
+            incidents: incidents,
+            tool: tool,
+            onTable: doTable,
+            onDish: onDish,
+            onIncident: doIncident,
+            onPet: doPet,
+          ),
         ),
       ]);
 
