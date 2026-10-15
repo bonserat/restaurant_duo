@@ -722,7 +722,9 @@ void _speech(Canvas c, String text, Offset anchor, double maxW, double fs, {Colo
 // =====================================================================
 //  SẢNH NHÀ HÀNG (vai PHỤC VỤ)
 // =====================================================================
-const _walkIn = 1.1, _walkOut = 1.3;
+// Khách đi ngoài phố (thấy qua cửa sổ) rồi mới vào cửa; khách về thì ra cửa rồi đi tiếp ngoài phố
+const _outside = 1.2, _inside = 1.1, _outInside = 1.3, _outOutside = 1.2;
+const _walkIn = _outside + _inside, _walkOut = _outInside + _outOutside;
 
 class _Leaver {
   final int table, seed;
@@ -807,6 +809,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
   final List<_Leaver> _leavers = [];
   final List<_Coin> _coins = [];
   List<String> _npcP = [];
+  List<bool> _rang = [];
   final Map<int, String> _incP = {};
   // Thú cưng
   final Map<String, Offset> _petPos = {};
@@ -857,6 +860,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       _serveAt = List.filled(n, -10.0);
       _seed = List.filled(n, 0);
       _npcP = List.filled(n, '');
+      _rang = List.filled(n, true);
       _leavers.clear();
       _coins.clear();
       first = true;
@@ -866,7 +870,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (occ && !_occ[i]) {
         _seed[i] = ++_seedN * 7919 + i * 31;
         _arr[i] = first ? -10.0 : _t;
-        if (!first) Sound.sfx('door', vol: 0.55);
+        _rang[i] = first;
       } else if (!occ && _occ[i] && !first) {
         final happy = tb[i].dirty; // được phục vụ xong thì bàn bẩn
         _leavers.add(_Leaver(i, _seed[i], _t, happy, _npcP[i]));
@@ -930,6 +934,12 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       }
     }
     _leavers.removeWhere((l) => t - l.t0 > _walkOut);
+    for (var i = 0; i < _rang.length && i < _arr.length; i++) {
+      if (!_rang[i] && t - _arr[i] >= _outside) {
+        _rang[i] = true;
+        Sound.sfx('door', vol: 0.55);
+      }
+    }
     _coins.removeWhere((c) => t - c.t0 > 1.5);
     _clock.value = t;
   }
@@ -1029,10 +1039,10 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         _hit.add(Rect.fromLTWH(cellW * (i % cols), floorTop + cellH * (i ~/ cols), cellW, cellH));
       }
     }
-    final cx0 = w * 0.03, cx1 = w * 0.74;
+    final cx0 = w * 0.03, cx1 = w * 0.56;
     final slotW = (cx1 - cx0) / 6;
     _slots = [for (var j = 0; j < 6; j++) Rect.fromLTWH(cx0 + slotW * j, wallH * 0.3, slotW, wallH * 0.7)];
-    _door = Offset(w * 0.87, wallH + s * 0.35);
+    _door = Offset(w * 0.895, wallH + s * 0.35);
     if (!_placed) {
       _placed = true;
       _wp = _wt = Offset(0.42, min(0.95, (wallH + s * 0.6) / h));
@@ -1126,23 +1136,11 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     for (final d in widget.decos) {
       final dt = decoById(d.type);
       if (!dt.wall) continue;
-      final sw = dt.id == 'lantern' ? sin(t * 2 + d.x * 10) * 2 : 0.0;
-      _emoji(c, dt.emoji, Offset(d.x * w + sw, wallH * 0.17), wallH * 0.26);
+      drawWallDeco(c, dt.id, Offset(d.x * w, wallH * (dt.id == 'light' || dt.id == 'lantern' ? 0.2 : 0.17)), wallH * 0.36, t);
     }
 
-    // Cửa ra vào
-    final dr = Rect.fromLTRB(w * 0.79, wallH * 0.26, w * 0.95, wallH);
-    c.drawRect(dr.inflate(3), Paint()..color = th.trim);
-    c.drawRect(dr, Paint()..color = _dk(th.wood, 0.05));
-    c.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(dr.left + dr.width * 0.2, dr.top + dr.height * 0.1, dr.width * 0.6, dr.height * 0.35), const Radius.circular(4)),
-      Paint()..color = style == 'night' ? const Color(0xFF283593) : const Color(0xFFB3E5FC),
-    );
-    c.drawCircle(Offset(dr.right - dr.width * 0.18, dr.top + dr.height * 0.62), max(2.0, dr.width * 0.06), Paint()..color = const Color(0xFFFFD54F));
-    c.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(dr.center.dx, wallH + 6), width: dr.width * 1.15, height: 10), const Radius.circular(3)),
-      Paint()..color = _a(th.accent, 0.85),
-    );
+    // Cửa sổ nhìn ra phố + cửa kính: thấy khách đi tới, người qua đường
+    _drawStreetFront(c, w, wallH, s, t, th);
     c.drawRect(Rect.fromLTWH(0, wallH - 4, w, 5), Paint()..color = th.trim);
 
     // ---------- Vẽ theo chiều sâu (y nhỏ vẽ trước) ----------
@@ -1151,8 +1149,8 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       items.add(_Item(_tc[i].dy, () => _drawTable(c, i, t, th)));
     }
     for (var i = 0; i < n; i++) {
-      if (tb[i].c != null && t - _arr[i] < _walkIn) {
-        final k = ((t - _arr[i]) / _walkIn).clamp(0.0, 1.0).toDouble();
+      if (tb[i].c != null && t - _arr[i] < _walkIn && t - _arr[i] >= _outside) {
+        final k = ((t - _arr[i] - _outside) / _inside).clamp(0.0, 1.0).toDouble();
         final seat = _seat(i);
         final p = Offset.lerp(_door, seat, Curves.easeInOut.transform(k))!;
         final npc = tb[i].c!.npc;
@@ -1162,8 +1160,8 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       }
     }
     for (final l in _leavers) {
-      if (l.table >= n) continue;
-      final k = ((t - l.t0) / _walkOut).clamp(0.0, 1.0).toDouble();
+      if (l.table >= n || t - l.t0 > _outInside) continue;
+      final k = ((t - l.t0) / _outInside).clamp(0.0, 1.0).toDouble();
       final from = _seat(l.table);
       final p = Offset.lerp(from, _door, Curves.easeIn.transform(k))!;
       final look = custLook(l.npc, l.seed);
@@ -1182,7 +1180,13 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     final plantEmoji = style == 'tet' ? '🌼' : (style == 'beach' ? '🌴' : (style == 'sakura' ? '🌸' : '🪴'));
     for (var k = 0; k < widget.decor && k < plants.length; k++) {
       final pp = plants[k];
-      items.add(_Item(pp.dy, () => _emoji(c, k.isEven ? plantEmoji : '🌿', pp - Offset(0, r * 0.4), r * 1.1)));
+      items.add(_Item(pp.dy, () {
+        if (style == 'classic' || style == 'garden' || style == 'night') {
+          drawFloorDeco(c, k.isEven ? 'plant' : 'flower', pp + Offset(0, r * 0.3), r * 1.6, t);
+        } else {
+          _emoji(c, k.isEven ? plantEmoji : '🌿', pp - Offset(0, r * 0.4), r * 1.3);
+        }
+      }));
     }
     // Đồ trang trí trên sàn (tự sắp xếp)
     for (final d in widget.decos) {
@@ -1273,10 +1277,10 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
           target = rat != null ? _incPos(rat) : _wander(t, w, h - r * 1.6, 21, 9).$1;
           break;
         case 'hamster':
-          target = Offset(w * 0.765, floorTop + r * 0.55);
+          target = Offset(w * 0.66, floorTop + r * 0.55);
           break;
         case 'parrot':
-          target = Offset(w * 0.87 - r * 1.3, floorTop + r * 0.25);
+          target = Offset(w * 0.8, floorTop + r * 0.25);
           break;
         default:
           target = _wander(t, w, h - r, 30, 5).$1;
@@ -1344,32 +1348,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
   }
 
   void _drawDeco(Canvas c, DecoType dt, Offset p, double r, double t) {
-    final sz = r * dt.size;
-    c.drawOval(Rect.fromCenter(center: p + Offset(0, sz * 0.4), width: sz * 0.9, height: sz * 0.22), Paint()..color = const Color(0x26000000));
-    if (dt.id == 'bar') {
-      final th = themeFor(widget.venueId, widget.style);
-      final body = RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: r * 2.8, height: r * 0.9), Radius.circular(r * 0.15));
-      c.drawRRect(body, Paint()..color = _dk(th.wood, 0.25));
-      c.drawRRect(
-        RRect.fromRectAndRadius(Rect.fromLTWH(body.left - 3, body.top - r * 0.12, body.width + 6, r * 0.22), Radius.circular(r * 0.1)),
-        Paint()..color = _lt(th.wood, 0.25),
-      );
-      const glasses = ['🍸', '🍷', '🥂'];
-      for (var k = 0; k < 3; k++) {
-        _emoji(c, glasses[k], Offset(body.left + body.width * (0.22 + 0.28 * k), body.top - r * 0.35), r * 0.5);
-      }
-      return;
-    }
-    if (dt.id == 'fish') {
-      for (var k = 0; k < 3; k++) {
-        final ph = (t * 0.7 + k / 3) % 1.0;
-        c.drawCircle(p + Offset(sin(ph * 6 + k) * sz * 0.15, -sz * 0.2 - ph * sz * 0.6), 2 + ph * 2, Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
-          ..color = _a(const Color(0xFF4FC3F7), 1 - ph));
-      }
-    }
-    _emoji(c, dt.emoji, p - Offset(0, sz * 0.1), sz);
+    drawFloorDeco(c, dt.id, p + Offset(0, r * 0.35), r * dt.size * 1.6, t, wood: themeFor(widget.venueId, widget.style).wood);
   }
 
   void _drawLight(Canvas c, double w, double h, double t) {
@@ -1449,6 +1428,185 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
           break;
       }
     }
+  }
+
+  /// Cửa sổ lớn nhìn ra phố và cửa kính. Khách sắp vào đi ngang qua cửa sổ tới cửa,
+  /// khách ra về đi ngược lại; thỉnh thoảng có người qua đường.
+  void _drawStreetFront(Canvas c, double w, double wallH, double s, double t, VTheme th) {
+    final style = widget.style;
+    final win = Rect.fromLTRB(w * 0.59, wallH * 0.24, w * 0.79, wallH * 0.92);
+    final dr = Rect.fromLTRB(w * 0.82, wallH * 0.2, w * 0.97, wallH);
+    final glass = Rect.fromLTRB(dr.left + dr.width * 0.14, dr.top + dr.height * 0.08, dr.right - dr.width * 0.14, dr.top + dr.height * 0.78);
+    final tb = widget.tables;
+    final doorX = dr.center.dx;
+
+    // Cửa đang mở khi có người bước qua
+    var open = false;
+    for (var i = 0; i < tb.length && i < _arr.length; i++) {
+      final dt = t - _arr[i];
+      if (tb[i].c != null && dt > _outside - 0.3 && dt < _outside + 0.35) open = true;
+    }
+    for (final l in _leavers) {
+      final dt = t - l.t0;
+      if (dt > _outInside - 0.35 && dt < _outInside + 0.3) open = true;
+    }
+
+    // khung
+    c.drawRRect(RRect.fromRectAndRadius(win.inflate(4), const Radius.circular(6)), Paint()..color = th.trim);
+    c.drawRect(dr.inflate(3), Paint()..color = th.trim);
+    if (!open) c.drawRect(dr, Paint()..shader = _vg(_lt(th.wood, 0.05), _dk(th.wood, 0.2)).createShader(dr));
+
+    // ---- phố bên ngoài (cắt theo cửa sổ + kính cửa) ----
+    final view = Path()
+      ..addRRect(RRect.fromRectAndRadius(win, const Radius.circular(4)))
+      ..addRect(open ? dr : glass);
+    c.save();
+    c.clipPath(view);
+    final all = Rect.fromLTRB(win.left, win.top, dr.right, dr.bottom);
+    final List<Color> sky;
+    switch (style) {
+      case 'night':
+        sky = const [Color(0xFF1A237E), Color(0xFF3949AB)];
+        break;
+      case 'sakura':
+        sky = const [Color(0xFFF8BBD0), Color(0xFFFFF0F5)];
+        break;
+      case 'beach':
+        sky = const [Color(0xFF29B6F6), Color(0xFFB3E5FC)];
+        break;
+      case 'tet':
+        sky = const [Color(0xFFFFCC80), Color(0xFFFFF8E1)];
+        break;
+      default:
+        sky = const [Color(0xFF90CAF9), Color(0xFFE3F2FD)];
+    }
+    c.drawRect(all, Paint()..shader = _vg(sky[0], sky[1]).createShader(all));
+    final night = style == 'night';
+    // nhà phố phía xa
+    final rr = Random(3);
+    var bx = all.left - 6;
+    while (bx < all.right) {
+      final bw = all.height * (0.35 + rr.nextDouble() * 0.3);
+      final bh = all.height * (0.35 + rr.nextDouble() * 0.35);
+      final b = Rect.fromLTWH(bx, all.bottom - all.height * 0.24 - bh, bw, bh);
+      c.drawRect(b, Paint()..color = night ? const Color(0xFF283593) : Color.lerp(sky[0], const Color(0xFF78909C), 0.45)!);
+      for (var k = 0; k < 4; k++) {
+        final wr = Rect.fromLTWH(b.left + bw * (0.18 + 0.4 * (k % 2)), b.top + bh * (0.15 + 0.3 * (k ~/ 2)), bw * 0.2, bh * 0.14);
+        c.drawRect(wr, Paint()..color = night ? _a(const Color(0xFFFFE082), 0.5 + 0.5 * sin(t * 0.7 + k + bx).abs()) : const Color(0x66FFFFFF));
+      }
+      bx += bw + 3;
+    }
+    if (style == 'sakura' || style == 'tet') {
+      for (var k = 0; k < 6; k++) {
+        final ph = (t * 0.35 + k / 6) % 1.0;
+        final px = all.left + all.width * _fr(k * 0.37 + t * 0.05);
+        c.drawOval(Rect.fromCenter(center: Offset(px, all.top + ph * all.height), width: 5, height: 3), Paint()..color = style == 'sakura' ? const Color(0xFFF06292) : const Color(0xFFFFC107));
+      }
+    }
+    // vỉa hè
+    final walk = Rect.fromLTRB(all.left, all.bottom - all.height * 0.24, all.right, all.bottom);
+    c.drawRect(walk, Paint()..color = night ? const Color(0xFF5C6BC0) : const Color(0xFFD7CCC8));
+    for (double x = walk.left; x < walk.right; x += 14) {
+      c.drawLine(Offset(x, walk.top), Offset(x - 5, walk.bottom), Paint()
+        ..color = const Color(0x22000000)
+        ..strokeWidth = 1);
+    }
+    // cột đèn đường
+    final lp = Offset(win.left + win.width * 0.12, walk.top);
+    c.drawLine(lp, lp - Offset(0, all.height * 0.62), Paint()
+      ..color = const Color(0xFF37474F)
+      ..strokeWidth = 2.5);
+    final bulb = lp - Offset(-4, all.height * 0.62);
+    if (night) _glow(c, bulb, all.height * 0.3, const Color(0xFFFFF59D), 0.6);
+    c.drawCircle(bulb, 3.5, Paint()..color = night ? const Color(0xFFFFF59D) : const Color(0xFFECEFF1));
+
+    final ps = all.height * 0.95; // người ngoài phố trông nhỏ hơn (ở xa)
+    final footY = all.bottom - all.height * 0.05;
+    // người qua đường
+    for (var k = 0; k < 3; k++) {
+      final period = 9.0 + k * 3.5;
+      final tt = t + k * 4.1;
+      final cyc = (tt / period).floor();
+      final ph = (tt % period) / period;
+      if (ph > 0.55) continue; // nghỉ giữa các lượt
+      final dir = (cyc + k).isEven ? 1.0 : -1.0;
+      final kk = ph / 0.55;
+      final x = dir > 0 ? all.left - 20 + kk * (all.width + 40) : all.right + 20 - kk * (all.width + 40);
+      drawPerson(c, Offset(x, footY), ps, Look.seed(k * 97 + cyc * 13), walking: true, phase: t * 11 + k, facingLeft: dir < 0);
+    }
+    // khách đang tới
+    for (var i = 0; i < tb.length && i < _arr.length; i++) {
+      final cu = tb[i].c;
+      final dt = t - _arr[i];
+      if (cu == null || dt < 0 || dt >= _outside) continue;
+      final k = Curves.easeOut.transform((dt / _outside).clamp(0.0, 1.0).toDouble());
+      final x = all.left - 18 + k * (doorX - all.left + 18);
+      final ss = cu.npc == 'student' ? ps * 0.82 : ps;
+      drawPerson(c, Offset(x, footY), ss, custLook(cu.npc, _seed[i]), walking: true, phase: t * 12 + i);
+    }
+    // khách ra về
+    for (final l in _leavers) {
+      final dt = t - l.t0 - _outInside;
+      if (dt < 0 || dt >= _outOutside) continue;
+      final k = Curves.easeIn.transform((dt / _outOutside).clamp(0.0, 1.0).toDouble());
+      final x = doorX - k * (doorX - all.left + 24);
+      drawPerson(c, Offset(x, footY), ps, custLook(l.npc, l.seed), walking: true, phase: t * 12, facingLeft: true, mood: l.happy ? 0 : 2, armUp: l.happy && sin(t * 9) > 0);
+    }
+    c.restore();
+
+    // ---- kính, song cửa, tay nắm ----
+    final refl = Paint()..color = const Color(0x40FFFFFF);
+    for (final g in [win, open ? Rect.zero : glass]) {
+      if (g == Rect.zero) continue;
+      c.drawPath(
+        Path()
+          ..moveTo(g.left + g.width * 0.15, g.top)
+          ..lineTo(g.left + g.width * 0.32, g.top)
+          ..lineTo(g.left + g.width * 0.05, g.bottom)
+          ..lineTo(g.left - g.width * 0.12, g.bottom)
+          ..close(),
+        refl,
+      );
+    }
+    final bar = Paint()
+      ..color = th.trim
+      ..strokeWidth = 3;
+    c.drawLine(Offset(win.center.dx, win.top), Offset(win.center.dx, win.bottom), bar);
+    c.drawLine(Offset(win.left, win.top + win.height * 0.38), Offset(win.right, win.top + win.height * 0.38), bar);
+    // bậu cửa sổ + chậu hoa nhỏ
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(win.left - 6, win.bottom, win.right + 6, win.bottom + 6), const Radius.circular(2)), Paint()..color = _lt(th.trim, 0.2));
+    if (open) {
+      // cánh cửa mở hé vào trong
+      final panel = Path()
+        ..moveTo(dr.left, dr.top)
+        ..lineTo(dr.left + dr.width * 0.28, dr.top + dr.height * 0.08)
+        ..lineTo(dr.left + dr.width * 0.28, dr.bottom + dr.height * 0.04)
+        ..lineTo(dr.left, dr.bottom)
+        ..close();
+      c.drawPath(panel, Paint()..color = _dk(th.wood, 0.1));
+      c.drawPath(panel, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = _dk(th.wood, 0.4));
+    } else {
+      c.drawRect(glass, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = _dk(th.wood, 0.3));
+      c.drawCircle(Offset(dr.right - dr.width * 0.2, dr.top + dr.height * 0.86), max(2.0, dr.width * 0.06), Paint()..color = const Color(0xFFFFD54F));
+    }
+    // chuông gió trên cửa
+    final ring = open ? sin(t * 25) * 0.4 : sin(t * 1.5) * 0.06;
+    c.save();
+    c.translate(doorX, dr.top - 2);
+    c.rotate(ring);
+    _emoji(c, '🔔', Offset(0, wallH * 0.07), wallH * 0.12);
+    c.restore();
+    // thảm chùi chân
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(doorX, wallH + 6), width: dr.width * 1.15, height: 10), const Radius.circular(3)),
+      Paint()..color = _a(th.accent, 0.85),
+    );
   }
 
   void _drawTable(Canvas c, int i, double t, VTheme th) {
@@ -2429,9 +2587,10 @@ class _CouplePainter extends CustomPainter {
 // =====================================================================
 class PersonAvatar extends StatelessWidget {
   final Look look;
-  final String role, name;
+  final String role;
+  final String? name;
   final double height;
-  const PersonAvatar({super.key, required this.look, required this.role, required this.name, this.height = 150});
+  const PersonAvatar({super.key, required this.look, required this.role, this.name, this.height = 150});
   @override
   Widget build(BuildContext context) => SizedBox(
         width: height * 0.8,
@@ -2442,7 +2601,8 @@ class PersonAvatar extends StatelessWidget {
 
 class _AvatarPainter extends CustomPainter {
   final Look look;
-  final String role, name;
+  final String role;
+  final String? name;
   _AvatarPainter(this.look, this.role, this.name);
   @override
   void paint(Canvas c, Size sz) => drawPerson(c, Offset(sz.width / 2, sz.height * 0.97), sz.height * 0.74, look, role: role, name: name);
@@ -2520,8 +2680,10 @@ class _LayoutEditorState extends State<LayoutEditor> with SingleTickerProviderSt
   int _hitTest(Offset p) {
     for (var k = widget.decos.length - 1; k >= 0; k--) {
       final d = widget.decos[k];
-      final rad = decoById(d.type).wall ? _wallH * 0.22 : _r * max(0.9, decoById(d.type).size * 0.8);
-      if ((p - _decoPx(d)).distance < rad) return -(k + 2);
+      final dt = decoById(d.type);
+      final ctr = dt.wall ? _decoPx(d) : _decoPx(d) - Offset(0, _r * dt.size * 0.55);
+      final rad = dt.wall ? _wallH * 0.3 : _r * max(0.9, dt.size * 0.95);
+      if ((p - ctr).distance < rad) return -(k + 2);
     }
     for (var i = _pos.length - 1; i >= 0; i--) {
       if ((p - (_px(_pos[i]) - Offset(0, _r * 0.4))).distance < _r * 1.4) return i;
@@ -2621,8 +2783,8 @@ class _LayoutEditorState extends State<LayoutEditor> with SingleTickerProviderSt
       final p = _decoPx(d);
       final sel = _drag == -(k + 2);
       if (dt.wall) {
-        _emoji(c, dt.emoji, p, _wallH * 0.26);
-        if (sel) c.drawCircle(p, _wallH * 0.2, Paint()
+        drawWallDeco(c, dt.id, p, _wallH * 0.36, t);
+        if (sel) c.drawCircle(p, _wallH * 0.26, Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3
           ..color = const Color(0xFF42A5F5));
@@ -2630,15 +2792,8 @@ class _LayoutEditorState extends State<LayoutEditor> with SingleTickerProviderSt
       }
       items.add(_Item(p.dy, () {
         final sz2 = r * dt.size;
-        c.drawOval(Rect.fromCenter(center: p + Offset(0, sz2 * 0.4), width: sz2 * 0.9, height: sz2 * 0.22), Paint()..color = const Color(0x26000000));
-        if (dt.id == 'bar') {
-          final body = RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: r * 2.8, height: r * 0.9), Radius.circular(r * 0.15));
-          c.drawRRect(body, Paint()..color = _dk(th.wood, 0.25));
-          _emoji(c, '🍸', p - Offset(0, r * 0.6), r * 0.55);
-        } else {
-          _emoji(c, dt.emoji, p - Offset(0, sz2 * 0.1), sz2);
-        }
-        if (sel) c.drawCircle(p, sz2 * 0.7, Paint()
+        drawFloorDeco(c, dt.id, p + Offset(0, r * 0.35), r * dt.size * 1.6, t, wood: th.wood);
+        if (sel) c.drawCircle(p - Offset(0, sz2 * 0.4), sz2 * 0.9, Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3
           ..color = const Color(0xFF42A5F5));
@@ -2675,4 +2830,549 @@ class _EditorPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) => st._paint(canvas, size);
   @override
   bool shouldRepaint(covariant _EditorPainter oldDelegate) => true;
+}
+
+// =====================================================================
+//  ĐỒ TRANG TRÍ VẼ TAY: to, có hào quang và lấp lánh
+// =====================================================================
+void _sparkle(Canvas c, Offset p, double size, double alpha, [Color col = Colors.white]) {
+  if (alpha <= 0.02) return;
+  final path = Path()
+    ..moveTo(p.dx, p.dy - size)
+    ..quadraticBezierTo(p.dx, p.dy, p.dx + size, p.dy)
+    ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy + size)
+    ..quadraticBezierTo(p.dx, p.dy, p.dx - size, p.dy)
+    ..quadraticBezierTo(p.dx, p.dy, p.dx, p.dy - size)
+    ..close();
+  c.drawCircle(p, size * 0.9, Paint()..color = _a(col, alpha * 0.25));
+  c.drawPath(path, Paint()..color = _a(col, alpha));
+}
+
+void _glow(Canvas c, Offset center, double radius, Color col, double strength) {
+  final rect = Rect.fromCircle(center: center, radius: radius);
+  c.drawCircle(
+    center,
+    radius,
+    Paint()..shader = RadialGradient(colors: [_a(col, strength), _a(col, 0)]).createShader(rect),
+  );
+}
+
+/// Lấp lánh quanh đồ vật (3 ngôi sao nhấp nháy lệch pha)
+void _twinkles(Canvas c, Rect box, double t, double seed, [Color col = Colors.white]) {
+  for (var k = 0; k < 3; k++) {
+    final ph = (t * 0.8 + k / 3 + seed) % 1.0;
+    final a = sin(ph * pi);
+    final px = box.left + box.width * _fr(seed * 3.7 + k * 0.41);
+    final py = box.top + box.height * _fr(seed * 5.3 + k * 0.29 + (t * 0.8 + k / 3 + seed).floor() * 0.37);
+    _sparkle(c, Offset(px, py), box.width * 0.07 * (0.6 + 0.4 * a), a * 0.95, col);
+  }
+}
+
+LinearGradient _vg(Color a, Color b) => LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [a, b]);
+
+/// Đồ đặt trên sàn. [p] là điểm chạm sàn (giữa đáy), [s] là chiều cao đồ vật.
+void drawFloorDeco(Canvas c, String id, Offset p, double s, double t, {Color wood = const Color(0xFF8D5B3C)}) {
+  final seed = (p.dx * 0.013 + p.dy * 0.007) % 1.0;
+  c.drawOval(Rect.fromCenter(center: p, width: s * 0.95, height: s * 0.2), Paint()..color = const Color(0x30000000));
+  final box = Rect.fromLTRB(p.dx - s * 0.5, p.dy - s, p.dx + s * 0.5, p.dy);
+  switch (id) {
+    case 'plant':
+      {
+        _glow(c, p - Offset(0, s * 0.6), s * 0.6, const Color(0xFF8BC34A), 0.25);
+        // lá: nhiều phiến hình giọt toả ra, đung đưa
+        for (var k = 0; k < 7; k++) {
+          final ang = -pi / 2 + (k - 3) * 0.38 + sin(t * 1.6 + k) * 0.05;
+          final len = s * (0.55 + 0.12 * ((k * 37) % 3));
+          c.save();
+          c.translate(p.dx, p.dy - s * 0.38);
+          c.rotate(ang + pi / 2);
+          final leaf = Path()
+            ..moveTo(0, 0)
+            ..quadraticBezierTo(s * 0.14, -len * 0.5, 0, -len)
+            ..quadraticBezierTo(-s * 0.14, -len * 0.5, 0, 0)
+            ..close();
+          final rect = Rect.fromLTWH(-s * 0.14, -len, s * 0.28, len);
+          c.drawPath(leaf, Paint()..shader = _vg(k.isEven ? const Color(0xFF9CCC65) : const Color(0xFF66BB6A), const Color(0xFF2E7D32)).createShader(rect));
+          c.drawLine(Offset.zero, Offset(0, -len * 0.9), Paint()
+            ..color = const Color(0x553E7D32)
+            ..strokeWidth = 1);
+          c.restore();
+        }
+        // chậu đất nung
+        final pot = Path()
+          ..moveTo(p.dx - s * 0.26, p.dy - s * 0.38)
+          ..lineTo(p.dx + s * 0.26, p.dy - s * 0.38)
+          ..lineTo(p.dx + s * 0.19, p.dy)
+          ..lineTo(p.dx - s * 0.19, p.dy)
+          ..close();
+        c.drawPath(pot, Paint()..shader = _vg(const Color(0xFFE07A4F), const Color(0xFFA9462B)).createShader(box));
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(p.dx - s * 0.3, p.dy - s * 0.44, p.dx + s * 0.3, p.dy - s * 0.34), Radius.circular(s * 0.03)), Paint()..color = const Color(0xFFF08A5D));
+        _twinkles(c, box, t, seed);
+      }
+      break;
+    case 'flower':
+      {
+        _glow(c, p - Offset(0, s * 0.65), s * 0.55, const Color(0xFFFF80AB), 0.3);
+        final heads = [Offset(-0.18, -0.78), Offset(0.02, -0.92), Offset(0.2, -0.76), Offset(-0.05, -0.66), Offset(0.13, -0.6)];
+        const cols = [Color(0xFFFF5C8A), Color(0xFFFFD54F), Color(0xFFBA68C8), Color(0xFFFF8A65), Color(0xFFFFFFFF)];
+        for (var k = 0; k < heads.length; k++) {
+          final hp = p + Offset(heads[k].dx * s + sin(t * 1.5 + k) * s * 0.01, heads[k].dy * s);
+          c.drawLine(p - Offset(0, s * 0.4), hp, Paint()
+            ..color = const Color(0xFF558B2F)
+            ..strokeWidth = max(1.5, s * 0.02));
+          for (var j = 0; j < 5; j++) {
+            final a = j * 2 * pi / 5 + t * 0.3;
+            c.drawCircle(hp + Offset(cos(a), sin(a)) * s * 0.055, s * 0.05, Paint()..color = cols[k]);
+          }
+          c.drawCircle(hp, s * 0.035, Paint()..color = const Color(0xFFFFB300));
+        }
+        // bình thuỷ tinh
+        final vase = RRect.fromRectAndCorners(Rect.fromLTRB(p.dx - s * 0.17, p.dy - s * 0.45, p.dx + s * 0.17, p.dy),
+            topLeft: Radius.circular(s * 0.05), topRight: Radius.circular(s * 0.05), bottomLeft: Radius.circular(s * 0.14), bottomRight: Radius.circular(s * 0.14));
+        c.drawRRect(vase, Paint()..color = const Color(0x8890CAF9));
+        c.drawRRect(vase, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = const Color(0xCCFFFFFF));
+        c.drawRect(Rect.fromLTWH(p.dx - s * 0.11, p.dy - s * 0.38, s * 0.04, s * 0.28), Paint()..color = const Color(0x99FFFFFF));
+        _twinkles(c, box, t, seed, const Color(0xFFFFF59D));
+      }
+      break;
+    case 'tree':
+      {
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(p.dx - s * 0.06, p.dy - s * 0.5, p.dx + s * 0.06, p.dy - s * 0.12), Radius.circular(s * 0.03)), Paint()..color = const Color(0xFF795548));
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(p.dx - s * 0.2, p.dy - s * 0.16, p.dx + s * 0.2, p.dy), Radius.circular(s * 0.04)), Paint()..shader = _vg(const Color(0xFFECEFF1), const Color(0xFFB0BEC5)).createShader(box));
+        final sway = sin(t * 1.1) * s * 0.012;
+        const blobs = [Offset(0, -0.72), Offset(-0.22, -0.6), Offset(0.22, -0.6), Offset(-0.12, -0.85), Offset(0.14, -0.86), Offset(0, -0.55)];
+        for (var k = 0; k < blobs.length; k++) {
+          final bc = p + Offset(blobs[k].dx * s + sway, blobs[k].dy * s);
+          final rr = s * (k == 0 ? 0.26 : 0.19);
+          c.drawCircle(bc, rr, Paint()..shader = RadialGradient(center: const Alignment(-0.4, -0.5), colors: const [Color(0xFF81C784), Color(0xFF2E7D32)]).createShader(Rect.fromCircle(center: bc, radius: rr)));
+        }
+        // dây đèn tiên lấp lánh trên tán cây
+        const fairy = [Color(0xFFFFF59D), Color(0xFFFFCC80), Color(0xFFFF8A80), Color(0xFFB9F6CA)];
+        for (var k = 0; k < 9; k++) {
+          final a = k * 0.7 + 0.3;
+          final lp = p + Offset(sin(a * 2.3) * s * 0.3 + sway, -s * (0.55 + 0.32 * _fr(k * 0.37)));
+          final al = 0.4 + 0.6 * sin(t * 3 + k * 1.3).abs();
+          c.drawCircle(lp, s * 0.05, Paint()..color = _a(fairy[k % 4], al * 0.35));
+          c.drawCircle(lp, s * 0.018, Paint()..color = _a(fairy[k % 4], al));
+        }
+      }
+      break;
+    case 'bar':
+      {
+        final w = s * 1.9;
+        // kệ chai phía sau
+        final shelf = Rect.fromLTRB(p.dx - w * 0.42, p.dy - s * 1.05, p.dx + w * 0.42, p.dy - s * 0.55);
+        c.drawRRect(RRect.fromRectAndRadius(shelf, Radius.circular(s * 0.05)), Paint()..color = _dk(wood, 0.35));
+        const bottles = [Color(0xFF66BB6A), Color(0xFFFFB74D), Color(0xFFE57373), Color(0xFF64B5F6), Color(0xFFBA68C8), Color(0xFFFFF176)];
+        for (var k = 0; k < 6; k++) {
+          final bx = shelf.left + shelf.width * (0.1 + 0.16 * k);
+          final bh = s * (0.28 + 0.06 * (k % 3));
+          final br = Rect.fromLTWH(bx - s * 0.04, shelf.bottom - bh - s * 0.03, s * 0.08, bh);
+          c.drawRRect(RRect.fromRectAndRadius(br, Radius.circular(s * 0.03)), Paint()..color = _a(bottles[k], 0.9));
+          c.drawRect(Rect.fromLTWH(bx - s * 0.015, br.top - s * 0.06, s * 0.03, s * 0.07), Paint()..color = _a(bottles[k], 0.9));
+          c.drawRect(Rect.fromLTWH(bx - s * 0.03, br.top + bh * 0.2, s * 0.015, bh * 0.5), Paint()..color = const Color(0x88FFFFFF));
+        }
+        // biển neon
+        final neon = 0.6 + 0.4 * sin(t * 4).abs();
+        _glow(c, Offset(p.dx, shelf.top - s * 0.08), s * 0.35, const Color(0xFFFF4081), 0.4 * neon);
+        final tp = _text('BAR', s * 0.16, color: _a(const Color(0xFFFF80AB), 0.6 + 0.4 * neon), bold: true);
+        tp.paint(c, Offset(p.dx - tp.width / 2, shelf.top - s * 0.08 - tp.height / 2));
+        // quầy
+        final body = RRect.fromRectAndRadius(Rect.fromLTRB(p.dx - w / 2, p.dy - s * 0.48, p.dx + w / 2, p.dy), Radius.circular(s * 0.06));
+        c.drawRRect(body, Paint()..shader = _vg(_lt(wood, 0.1), _dk(wood, 0.35)).createShader(body.outerRect));
+        for (var k = 1; k < 5; k++) {
+          c.drawLine(Offset(body.left + w * k / 5, body.top + s * 0.08), Offset(body.left + w * k / 5, body.bottom - s * 0.04), Paint()
+            ..color = _a(Colors.black, 0.15)
+            ..strokeWidth = 1.5);
+        }
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTRB(body.left - s * 0.05, body.top - s * 0.06, body.right + s * 0.05, body.top + s * 0.05), Radius.circular(s * 0.04)), Paint()..shader = _vg(const Color(0xFFFFE0B2), const Color(0xFFBCAAA4)).createShader(body.outerRect));
+        // ly cocktail trên quầy
+        for (var k = 0; k < 2; k++) {
+          final gx = p.dx + (k == 0 ? -w * 0.25 : w * 0.28);
+          final gy = body.top - s * 0.06;
+          c.drawPath(Path()
+            ..moveTo(gx - s * 0.08, gy - s * 0.16)
+            ..lineTo(gx + s * 0.08, gy - s * 0.16)
+            ..lineTo(gx, gy - s * 0.06)
+            ..close(), Paint()..color = k == 0 ? const Color(0xCCFF8A65) : const Color(0xCC4FC3F7));
+          c.drawLine(Offset(gx, gy - s * 0.06), Offset(gx, gy), Paint()
+            ..color = const Color(0xCCFFFFFF)
+            ..strokeWidth = 1.5);
+        }
+        _twinkles(c, Rect.fromLTRB(p.dx - w / 2, p.dy - s * 1.1, p.dx + w / 2, p.dy - s * 0.4), t, seed, const Color(0xFFFFE082));
+      }
+      break;
+    case 'piano':
+      {
+        final w = s * 1.2;
+        final body = Path()
+          ..moveTo(p.dx - w * 0.5, p.dy - s * 0.25)
+          ..lineTo(p.dx - w * 0.5, p.dy - s * 0.55)
+          ..quadraticBezierTo(p.dx - w * 0.5, p.dy - s * 0.95, p.dx, p.dy - s * 0.92)
+          ..quadraticBezierTo(p.dx + w * 0.55, p.dy - s * 0.9, p.dx + w * 0.5, p.dy - s * 0.4)
+          ..lineTo(p.dx + w * 0.5, p.dy - s * 0.25)
+          ..close();
+        c.drawPath(body, Paint()..shader = _vg(const Color(0xFF424242), const Color(0xFF0D0D0D)).createShader(box.inflate(s * 0.3)));
+        // nắp mở
+        c.drawLine(Offset(p.dx - w * 0.3, p.dy - s * 0.85), Offset(p.dx + w * 0.1, p.dy - s * 1.2), Paint()
+          ..color = const Color(0xFF212121)
+          ..strokeWidth = s * 0.06
+          ..strokeCap = StrokeCap.round);
+        c.drawPath(body, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = const Color(0x66FFFFFF));
+        // phím đàn
+        final keys = Rect.fromLTRB(p.dx - w * 0.5, p.dy - s * 0.3, p.dx + w * 0.5, p.dy - s * 0.18);
+        c.drawRect(keys, Paint()..color = Colors.white);
+        for (var k = 0; k < 10; k++) {
+          final kx = keys.left + keys.width * (k + 0.7) / 10.5;
+          if (k % 7 == 2 || k % 7 == 6) continue;
+          c.drawRect(Rect.fromLTWH(kx, keys.top, keys.width / 22, keys.height * 0.6), Paint()..color = Colors.black);
+        }
+        // chân đàn
+        for (final x in [-0.42, 0.42]) {
+          c.drawRect(Rect.fromLTWH(p.dx + x * w - s * 0.025, p.dy - s * 0.18, s * 0.05, s * 0.18), Paint()..color = const Color(0xFF1A1A1A));
+        }
+        // nốt nhạc bay
+        for (var k = 0; k < 3; k++) {
+          final ph = (t * 0.45 + k / 3 + seed) % 1.0;
+          final np = p + Offset(w * 0.3 + sin(ph * 6 + k) * s * 0.15, -s * (0.9 + ph * 0.8));
+          final tp = _text(k.isEven ? '♪' : '♫', s * 0.22, color: _a(const Color(0xFFFFD54F), 1 - ph), bold: true);
+          tp.paint(c, np - Offset(tp.width / 2, tp.height / 2));
+        }
+        _sparkle(c, p + Offset(-w * 0.2, -s * 0.8), s * 0.06, 0.5 + 0.5 * sin(t * 3).abs());
+      }
+      break;
+    case 'fish':
+      {
+        final tank = Rect.fromLTRB(p.dx - s * 0.65, p.dy - s * 0.95, p.dx + s * 0.65, p.dy - s * 0.15);
+        _glow(c, tank.center, s * 0.9, const Color(0xFF4FC3F7), 0.25);
+        c.drawRect(Rect.fromLTRB(tank.left + s * 0.05, tank.bottom, tank.right - s * 0.05, p.dy), Paint()..color = _dk(wood, 0.2));
+        final rr = RRect.fromRectAndRadius(tank, Radius.circular(s * 0.06));
+        c.save();
+        c.clipRRect(rr);
+        c.drawRect(tank, Paint()..shader = _vg(const Color(0xFF81D4FA), const Color(0xFF0277BD)).createShader(tank));
+        // cát + rong
+        c.drawRect(Rect.fromLTRB(tank.left, tank.bottom - s * 0.1, tank.right, tank.bottom), Paint()..color = const Color(0xFFFFE0B2));
+        for (var k = 0; k < 4; k++) {
+          final sx = tank.left + tank.width * (0.12 + 0.25 * k);
+          final weed = Path()..moveTo(sx, tank.bottom - s * 0.08);
+          for (var j = 1; j <= 6; j++) {
+            weed.lineTo(sx + sin(t * 2 + j + k) * s * 0.04, tank.bottom - s * 0.08 - j * s * 0.06);
+          }
+          c.drawPath(weed, Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = s * 0.035
+            ..strokeCap = StrokeCap.round
+            ..color = const Color(0xFF43A047));
+        }
+        // cá bơi
+        const fc = [Color(0xFFFF7043), Color(0xFFFFEB3B), Color(0xFFF06292)];
+        for (var k = 0; k < 3; k++) {
+          final ph = (t * (0.12 + 0.04 * k) + k * 0.33) % 1.0;
+          final dir = ph < 0.5 ? 1.0 : -1.0;
+          final fx = tank.left + tank.width * (ph < 0.5 ? ph * 2 : 2 - ph * 2);
+          final fy = tank.top + tank.height * (0.3 + 0.18 * k) + sin(t * 2 + k) * s * 0.03;
+          c.save();
+          c.translate(fx, fy);
+          c.scale(dir, 1);
+          c.drawOval(Rect.fromCenter(center: Offset.zero, width: s * 0.2, height: s * 0.11), Paint()..color = fc[k]);
+          c.drawPath(Path()
+            ..moveTo(-s * 0.08, 0)
+            ..lineTo(-s * 0.16, -s * 0.06)
+            ..lineTo(-s * 0.16, s * 0.06)
+            ..close(), Paint()..color = fc[k]);
+          c.drawCircle(Offset(s * 0.05, -s * 0.01), s * 0.015, Paint()..color = Colors.black);
+          c.restore();
+        }
+        for (var k = 0; k < 4; k++) {
+          final ph = (t * 0.6 + k / 4) % 1.0;
+          c.drawCircle(Offset(tank.left + tank.width * (0.2 + 0.2 * k) + sin(ph * 8) * 3, tank.bottom - ph * tank.height), s * 0.02 + ph * s * 0.015, Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2
+            ..color = _a(Colors.white, 1 - ph));
+        }
+        c.drawRect(Rect.fromLTWH(tank.left + s * 0.08, tank.top, s * 0.06, tank.height), Paint()..color = const Color(0x44FFFFFF));
+        c.restore();
+        c.drawRRect(rr, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = const Color(0xFF455A64));
+      }
+      break;
+    case 'books':
+      {
+        final sh = Rect.fromLTRB(p.dx - s * 0.5, p.dy - s * 1.1, p.dx + s * 0.5, p.dy);
+        c.drawRRect(RRect.fromRectAndRadius(sh, Radius.circular(s * 0.04)), Paint()..shader = _vg(_lt(wood, 0.05), _dk(wood, 0.3)).createShader(sh));
+        const spines = [Color(0xFFE53935), Color(0xFF1E88E5), Color(0xFFFDD835), Color(0xFF43A047), Color(0xFF8E24AA), Color(0xFFFF7043), Color(0xFF00897B)];
+        for (var row = 0; row < 3; row++) {
+          final top = sh.top + s * 0.06 + row * s * 0.34;
+          c.drawRect(Rect.fromLTRB(sh.left + s * 0.05, top, sh.right - s * 0.05, top + s * 0.3), Paint()..color = _dk(wood, 0.55));
+          var x = sh.left + s * 0.07;
+          var k = row * 3;
+          while (x < sh.right - s * 0.12) {
+            final bw = s * (0.07 + 0.03 * (k % 3));
+            final bh = s * (0.2 + 0.05 * ((k * 7) % 3));
+            c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, top + s * 0.29 - bh, bw, bh), Radius.circular(s * 0.01)), Paint()..color = spines[k % spines.length]);
+            c.drawRect(Rect.fromLTWH(x, top + s * 0.29 - bh * 0.7, bw, s * 0.015), Paint()..color = const Color(0x66FFFFFF));
+            x += bw + s * 0.015;
+            k++;
+          }
+        }
+        _sparkle(c, Offset(sh.right - s * 0.1, sh.top + s * 0.08), s * 0.06, 0.4 + 0.6 * sin(t * 2.5 + seed * 9).abs(), const Color(0xFFFFF59D));
+      }
+      break;
+    case 'sofa':
+      {
+        final w = s * 1.5;
+        const velvet = Color(0xFF7E57C2);
+        final back = RRect.fromRectAndRadius(Rect.fromLTRB(p.dx - w * 0.46, p.dy - s * 0.75, p.dx + w * 0.46, p.dy - s * 0.3), Radius.circular(s * 0.14));
+        c.drawRRect(back, Paint()..shader = _vg(_lt(velvet, 0.15), _dk(velvet, 0.2)).createShader(back.outerRect));
+        for (final x in [-0.17, 0.17]) {
+          c.drawCircle(Offset(p.dx + x * w, p.dy - s * 0.55), s * 0.025, Paint()..color = _dk(velvet, 0.4));
+        }
+        final seat = RRect.fromRectAndRadius(Rect.fromLTRB(p.dx - w * 0.45, p.dy - s * 0.36, p.dx + w * 0.45, p.dy - s * 0.08), Radius.circular(s * 0.1));
+        c.drawRRect(seat, Paint()..shader = _vg(_lt(velvet, 0.3), velvet).createShader(seat.outerRect));
+        for (final side in [-1.0, 1.0]) {
+          final arm = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(p.dx + side * w * 0.47, p.dy - s * 0.3), width: s * 0.22, height: s * 0.48), Radius.circular(s * 0.1));
+          c.drawRRect(arm, Paint()..shader = _vg(_lt(velvet, 0.2), _dk(velvet, 0.25)).createShader(arm.outerRect));
+        }
+        // gối
+        final pil = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(p.dx - w * 0.22, p.dy - s * 0.42), width: s * 0.28, height: s * 0.24), Radius.circular(s * 0.08));
+        c.drawRRect(pil, Paint()..color = const Color(0xFFFFD54F));
+        final pil2 = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(p.dx + w * 0.22, p.dy - s * 0.42), width: s * 0.28, height: s * 0.24), Radius.circular(s * 0.08));
+        c.drawRRect(pil2, Paint()..color = const Color(0xFFFF8A80));
+        for (final x in [-0.38, 0.38]) {
+          c.drawRect(Rect.fromLTWH(p.dx + x * w - s * 0.03, p.dy - s * 0.09, s * 0.06, s * 0.09), Paint()..color = const Color(0xFF4E342E));
+        }
+        _twinkles(c, Rect.fromLTRB(p.dx - w / 2, p.dy - s * 0.8, p.dx + w / 2, p.dy - s * 0.2), t, seed);
+      }
+      break;
+    case 'statue':
+      {
+        _glow(c, p - Offset(0, s * 0.7), s * 0.55, const Color(0xFFFFD54F), 0.3 + 0.1 * sin(t * 2));
+        final ped = Rect.fromLTRB(p.dx - s * 0.24, p.dy - s * 0.35, p.dx + s * 0.24, p.dy);
+        c.drawRect(ped, Paint()..shader = _vg(const Color(0xFFF5F5F5), const Color(0xFFBDBDBD)).createShader(ped));
+        c.drawRect(Rect.fromLTRB(ped.left - s * 0.04, ped.top - s * 0.05, ped.right + s * 0.04, ped.top), Paint()..color = const Color(0xFFE0E0E0));
+        c.drawRect(Rect.fromLTRB(ped.left - s * 0.04, ped.bottom - s * 0.05, ped.right + s * 0.04, ped.bottom), Paint()..color = const Color(0xFFE0E0E0));
+        // tượng bán thân bằng đá + vòng nguyệt quế vàng
+        const stone = [Color(0xFFECEFF1), Color(0xFF90A4AE)];
+        final bust = Path()
+          ..moveTo(p.dx - s * 0.2, p.dy - s * 0.4)
+          ..quadraticBezierTo(p.dx - s * 0.2, p.dy - s * 0.62, p.dx, p.dy - s * 0.62)
+          ..quadraticBezierTo(p.dx + s * 0.2, p.dy - s * 0.62, p.dx + s * 0.2, p.dy - s * 0.4)
+          ..close();
+        c.drawPath(bust, Paint()..shader = _vg(stone[0], stone[1]).createShader(box));
+        c.drawRect(Rect.fromLTWH(p.dx - s * 0.05, p.dy - s * 0.72, s * 0.1, s * 0.12), Paint()..color = stone[1]);
+        final head = Offset(p.dx, p.dy - s * 0.82);
+        c.drawCircle(head, s * 0.14, Paint()..shader = RadialGradient(center: const Alignment(-0.4, -0.4), colors: stone).createShader(Rect.fromCircle(center: head, radius: s * 0.14)));
+        for (var k = 0; k < 7; k++) {
+          final a = pi + 0.2 + k * 0.45;
+          c.drawOval(Rect.fromCenter(center: head + Offset(cos(a), sin(a)) * s * 0.14, width: s * 0.07, height: s * 0.04), Paint()..color = const Color(0xFFFFC107));
+        }
+        _twinkles(c, Rect.fromLTRB(p.dx - s * 0.4, p.dy - s * 1.05, p.dx + s * 0.4, p.dy - s * 0.4), t, seed, const Color(0xFFFFF59D));
+      }
+      break;
+    default:
+      _emoji(c, decoById(id).emoji, p - Offset(0, s * 0.5), s);
+  }
+}
+
+/// Đồ treo tường, [p] là tâm đồ vật, [s] là kích thước
+void drawWallDeco(Canvas c, String id, Offset p, double s, double t) {
+  final seed = (p.dx * 0.017) % 1.0;
+  switch (id) {
+    case 'frame':
+      {
+        final outer = Rect.fromCenter(center: p, width: s * 1.25, height: s * 0.95);
+        c.drawRect(outer.shift(const Offset(2, 3)), Paint()..color = const Color(0x40000000));
+        c.drawRect(outer, Paint()..shader = LinearGradient(colors: const [Color(0xFFFFE082), Color(0xFFC8962B), Color(0xFFFFE082)]).createShader(outer));
+        final inner = outer.deflate(s * 0.1);
+        c.save();
+        c.clipRect(inner);
+        c.drawRect(inner, Paint()..shader = _vg(const Color(0xFFFFCC80), const Color(0xFF81D4FA)).createShader(inner));
+        c.drawCircle(Offset(inner.left + inner.width * 0.7, inner.top + inner.height * 0.35), s * 0.1, Paint()..color = const Color(0xFFFFF176));
+        c.drawPath(
+          Path()
+            ..moveTo(inner.left, inner.bottom)
+            ..quadraticBezierTo(inner.left + inner.width * 0.3, inner.top + inner.height * 0.45, inner.left + inner.width * 0.6, inner.bottom)
+            ..close(),
+          Paint()..color = const Color(0xFF66BB6A),
+        );
+        c.drawPath(
+          Path()
+            ..moveTo(inner.left + inner.width * 0.35, inner.bottom)
+            ..quadraticBezierTo(inner.left + inner.width * 0.7, inner.top + inner.height * 0.55, inner.right, inner.bottom)
+            ..close(),
+          Paint()..color = const Color(0xFF388E3C),
+        );
+        // vệt sáng lướt qua mặt kính
+        final ph = (t * 0.25 + seed) % 1.0;
+        final gx = inner.left - inner.width * 0.3 + ph * inner.width * 1.6;
+        c.drawPath(
+          Path()
+            ..moveTo(gx, inner.top)
+            ..lineTo(gx + s * 0.12, inner.top)
+            ..lineTo(gx - s * 0.08, inner.bottom)
+            ..lineTo(gx - s * 0.2, inner.bottom)
+            ..close(),
+          Paint()..color = const Color(0x55FFFFFF),
+        );
+        c.restore();
+      }
+      break;
+    case 'clock':
+      {
+        // quả lắc
+        final sw = sin(t * 3) * 0.35;
+        c.save();
+        c.translate(p.dx, p.dy + s * 0.25);
+        c.rotate(sw);
+        c.drawLine(Offset.zero, Offset(0, s * 0.45), Paint()
+          ..color = const Color(0xFFC8962B)
+          ..strokeWidth = 2);
+        c.drawCircle(Offset(0, s * 0.45), s * 0.08, Paint()..color = const Color(0xFFFFC107));
+        c.restore();
+        c.drawCircle(p + const Offset(1.5, 2.5), s * 0.42, Paint()..color = const Color(0x40000000));
+        c.drawCircle(p, s * 0.42, Paint()..shader = _vg(const Color(0xFF8D6E63), const Color(0xFF4E342E)).createShader(Rect.fromCircle(center: p, radius: s * 0.42)));
+        c.drawCircle(p, s * 0.34, Paint()..color = const Color(0xFFFFF8E1));
+        for (var k = 0; k < 12; k++) {
+          final a = k * pi / 6;
+          c.drawLine(p + Offset(cos(a), sin(a)) * s * 0.28, p + Offset(cos(a), sin(a)) * s * 0.32, Paint()
+            ..color = const Color(0xFF5D4037)
+            ..strokeWidth = k % 3 == 0 ? 2.5 : 1.2);
+        }
+        final hand = Paint()
+          ..color = const Color(0xFF3E2723)
+          ..strokeCap = StrokeCap.round;
+        final mA = t * 0.6 - pi / 2, hA = t * 0.05 - pi / 2;
+        c.drawLine(p, p + Offset(cos(hA), sin(hA)) * s * 0.17, hand..strokeWidth = 3);
+        c.drawLine(p, p + Offset(cos(mA), sin(mA)) * s * 0.26, hand..strokeWidth = 2);
+        c.drawCircle(p, s * 0.035, Paint()..color = const Color(0xFFC62828));
+      }
+      break;
+    case 'lantern':
+      {
+        final sw = sin(t * 1.8 + seed * 6) * 0.12;
+        c.drawLine(Offset(p.dx, p.dy - s * 0.7), Offset(p.dx, p.dy - s * 0.42), Paint()
+          ..color = const Color(0xFF5D4037)
+          ..strokeWidth = 1.5);
+        c.save();
+        c.translate(p.dx, p.dy - s * 0.42);
+        c.rotate(sw);
+        final pulse = 0.75 + 0.25 * sin(t * 2.5 + seed * 5);
+        _glow(c, Offset(0, s * 0.4), s * 0.75, const Color(0xFFFF5252), 0.35 * pulse);
+        final body = Rect.fromCenter(center: Offset(0, s * 0.4), width: s * 0.7, height: s * 0.55);
+        c.drawOval(body, Paint()..shader = RadialGradient(colors: [Color.lerp(const Color(0xFFFF8A65), const Color(0xFFFFE082), pulse * 0.5)!, const Color(0xFFC62828)]).createShader(body));
+        for (var k = 1; k < 4; k++) {
+          final x = body.left + body.width * k / 4;
+          c.drawLine(Offset(x, body.top + s * 0.04), Offset(x, body.bottom - s * 0.04), Paint()
+            ..color = const Color(0x55B71C1C)
+            ..strokeWidth = 1.2);
+        }
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(0, body.top), width: s * 0.36, height: s * 0.08), Radius.circular(s * 0.02)), Paint()..color = const Color(0xFFFFC107));
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(0, body.bottom), width: s * 0.36, height: s * 0.08), Radius.circular(s * 0.02)), Paint()..color = const Color(0xFFFFC107));
+        // tua rua
+        for (var k = -1; k <= 1; k++) {
+          c.drawLine(Offset(k * s * 0.04, body.bottom + s * 0.04), Offset(k * s * 0.05 + sw * s * 0.1, body.bottom + s * 0.28), Paint()
+            ..color = const Color(0xFFFFB300)
+            ..strokeWidth = 1.5);
+        }
+        c.restore();
+      }
+      break;
+    case 'light':
+      {
+        c.drawLine(Offset(p.dx, p.dy - s * 0.7), Offset(p.dx, p.dy - s * 0.2), Paint()
+          ..color = const Color(0xFF37474F)
+          ..strokeWidth = 1.5);
+        final pulse = 0.85 + 0.15 * sin(t * 2 + seed * 7);
+        // quầng sáng toả xuống
+        final cone = Path()
+          ..moveTo(p.dx - s * 0.2, p.dy + s * 0.05)
+          ..lineTo(p.dx + s * 0.2, p.dy + s * 0.05)
+          ..lineTo(p.dx + s * 0.75, p.dy + s * 1.4)
+          ..lineTo(p.dx - s * 0.75, p.dy + s * 1.4)
+          ..close();
+        c.drawPath(cone, Paint()..shader = _vg(_a(const Color(0xFFFFF59D), 0.35 * pulse), _a(const Color(0xFFFFF59D), 0)).createShader(Rect.fromLTRB(p.dx - s, p.dy, p.dx + s, p.dy + s * 1.4)));
+        _glow(c, p + Offset(0, s * 0.08), s * 0.45, const Color(0xFFFFF176), 0.5 * pulse);
+        final shade = Path()
+          ..moveTo(p.dx - s * 0.12, p.dy - s * 0.22)
+          ..lineTo(p.dx + s * 0.12, p.dy - s * 0.22)
+          ..lineTo(p.dx + s * 0.32, p.dy + s * 0.06)
+          ..lineTo(p.dx - s * 0.32, p.dy + s * 0.06)
+          ..close();
+        c.drawPath(shade, Paint()..shader = _vg(const Color(0xFF26A69A), const Color(0xFF00695C)).createShader(Rect.fromLTRB(p.dx - s * 0.3, p.dy - s * 0.22, p.dx + s * 0.3, p.dy + s * 0.06)));
+        c.drawCircle(p + Offset(0, s * 0.08), s * 0.08, Paint()..color = const Color(0xFFFFFDE7));
+      }
+      break;
+    default:
+      _emoji(c, decoById(id).emoji, p, s);
+  }
+}
+
+/// Đồ trang trí vẽ trong ô nhỏ (dùng ở cửa hàng)
+class DecoPreview extends StatefulWidget {
+  final String type;
+  final double size;
+  const DecoPreview({super.key, required this.type, this.size = 64});
+  @override
+  State<DecoPreview> createState() => _DecoPreviewState();
+}
+
+class _DecoPreviewState extends State<DecoPreview> with SingleTickerProviderStateMixin {
+  late final Ticker _ticker;
+  final _clock = ValueNotifier<double>(0);
+  @override
+  void initState() {
+    super.initState();
+    _ticker = createTicker((e) => _clock.value = e.inMicroseconds / 1e6)..start();
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _clock.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF3A2F66), Color(0xFF221B3F)]),
+          borderRadius: BorderRadius.circular(widget.size * 0.28),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(widget.size * 0.28),
+          child: CustomPaint(painter: _DecoPreviewPainter(widget.type, _clock)),
+        ),
+      );
+}
+
+class _DecoPreviewPainter extends CustomPainter {
+  final String type;
+  final ValueNotifier<double> clock;
+  _DecoPreviewPainter(this.type, this.clock) : super(repaint: clock);
+  @override
+  void paint(Canvas c, Size sz) {
+    final dt = decoById(type);
+    final t = clock.value;
+    if (dt.wall) {
+      final s = sz.height * (type == 'light' ? 0.6 : 0.62);
+      drawWallDeco(c, type, Offset(sz.width / 2, sz.height * (type == 'light' || type == 'lantern' ? 0.42 : 0.5)), s, t);
+    } else {
+      final wide = type == 'bar' || type == 'sofa' || type == 'fish';
+      final s = sz.height * (type == 'bar' ? 0.5 : (wide ? 0.62 : 0.78));
+      drawFloorDeco(c, type, Offset(sz.width / 2, sz.height * 0.9), s, t);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DecoPreviewPainter oldDelegate) => true;
 }

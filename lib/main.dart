@@ -11,6 +11,8 @@ import 'models.dart';
 import 'net.dart';
 import 'scene.dart';
 import 'sound.dart';
+import 'town.dart';
+import 'ui.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -21,7 +23,7 @@ Future<void> main() async {
     await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseAnonKey);
   }
   await Sound.init();
-  runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: GamePage()));
+  runApp(MaterialApp(debugShowCheckedModeBanner: false, theme: appTheme(), home: const GamePage()));
 }
 
 class GamePage extends StatefulWidget {
@@ -38,6 +40,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   // menu, create, lobby, join, wait, play, end, shop
   String screen = 'menu';
+  String hubTab = 'map'; // map | shop | home | online
 
   // --- Chế độ chơi ---
   String mode = 'local'; // local (1 máy) | host | guest
@@ -565,26 +568,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         confirmExit();
         break;
       case 'menu':
-        SystemNavigator.pop();
+        if (mode == 'guest') {
+          leaveRoom();
+        } else if (hubTab != 'map') {
+          setState(() => hubTab = 'map');
+        } else {
+          SystemNavigator.pop();
+        }
         break;
       case 'shop':
         setState(() => screen = shopBack);
         break;
-      case 'create':
-      case 'pets':
-      case 'layout':
-        setState(() => screen = 'menu');
-        break;
       case 'profile':
         if (owner.isEmpty) {
           SystemNavigator.pop();
-        } else {
-          setState(() => screen = 'menu');
-        }
-        break;
-      case 'join':
-        if (mode == 'guest') {
-          leaveRoom();
         } else {
           setState(() => screen = 'menu');
         }
@@ -1225,348 +1222,709 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     // Đang chơi: nhạc theo hoạt cảnh; các màn khác: nhạc menu
     Sound.music(screen == 'play' ? styleNow : 'menu');
     Widget body;
+    var stage = false; // màn "sân khấu" nền tối
     switch (screen) {
-      case 'create':
-        body = createScreen();
-        break;
       case 'lobby':
         body = lobbyScreen();
-        break;
-      case 'join':
-        body = joinScreen();
+        stage = true;
         break;
       case 'wait':
         body = waitScreen();
+        stage = true;
         break;
       case 'play':
         body = playScreen();
         break;
       case 'end':
         body = endScreen();
+        stage = true;
         break;
       case 'shop':
         body = shopScreen();
         break;
       case 'profile':
         body = profileScreen();
-        break;
-      case 'pets':
-        body = petsScreen();
-        break;
-      case 'layout':
-        body = layoutScreen();
+        stage = true;
         break;
       default:
-        body = menuScreen();
+        body = hubScreen();
     }
+    final inner = Column(children: [
+      if (peerLost)
+        Container(
+          width: double.infinity,
+          color: Pal.danger,
+          padding: const EdgeInsets.all(6),
+          child: Text(race ? '⚠️ Mất kết nối với hàng xóm…' : '⚠️ Mất kết nối với hàng xóm… ván tạm dừng',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700), textAlign: TextAlign.center),
+        ),
+      Expanded(child: body),
+    ]);
+    final topInset = MediaQuery.of(context).padding.top;
+    final hub = screen != 'play' && !stage;
+    final Widget page = stage
+        ? StageBackground(child: SafeArea(child: inner))
+        : Column(children: [
+            Container(height: topInset, color: Pal.ink),
+            Expanded(
+              child: MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                child: screen == 'menu' ? inner : SafeArea(top: false, child: inner),
+              ),
+            ),
+          ]);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) onBack();
       },
-      child: Scaffold(
-      backgroundColor: const Color(0xFFFFF3E0),
-      body: SafeArea(
-        child: Column(children: [
-          if (peerLost)
-            Container(
-              width: double.infinity,
-              color: Colors.red,
-              padding: const EdgeInsets.all(6),
-              child: Text(race ? '⚠️ Mất kết nối với hàng xóm…' : '⚠️ Mất kết nối với hàng xóm… ván tạm dừng', style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
-            ),
-          Expanded(child: body),
-        ]),
-      ),
-      ),
+      child: Scaffold(backgroundColor: hub ? Pal.bg : Pal.ink, body: page),
     );
   }
 
   Widget bigButton(String text, VoidCallback? onTap, {Color? color}) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: SizedBox(
-          width: 280,
-          height: 52,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: color ?? Colors.deepOrange,
-              foregroundColor: Colors.white,
-              elevation: 3,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              textStyle: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            onPressed: onTap == null
-                ? null
-                : () {
-                    Sound.sfx('tap');
-                    onTap?.call();
-                  },
-            child: Text(text, style: const TextStyle(fontSize: 17)),
-          ),
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: GButton(text, onTap: onTap, colors: color == null ? const [Pal.coral, Pal.coral2] : [color, color]),
       );
 
   String roleName(String r) => r == 'chef' ? '${castNA ? '👩‍🍳' : '👨‍🍳'} $chefName (Đầu bếp)' : '🛎️ $waiterName (Phục vụ)';
 
-  /// Nút đổi ai nấu – ai phục vụ
-  Widget castPicker() => Wrap(spacing: 8, alignment: WrapAlignment.center, children: [
-        ChoiceChip(
-          label: const Text('👨‍🍳 Nguyên nấu, Ngọc Anh phục vụ'),
-          selected: !ngocAnhChef,
-          onSelected: (_) {
-            setState(() => ngocAnhChef = false);
-            save();
-          },
-        ),
-        ChoiceChip(
-          label: const Text('👩‍🍳 Ngọc Anh nấu, Nguyên phục vụ'),
-          selected: ngocAnhChef,
-          onSelected: (_) {
-            setState(() => ngocAnhChef = true);
-            save();
-          },
-        ),
-      ]);
-
-  // --- Menu & phòng ---
-  Widget menuScreen() => Center(
-        child: SingleChildScrollView(
-          child: Column(children: [
-            Align(alignment: Alignment.centerRight, child: Padding(padding: const EdgeInsets.all(8), child: soundBtn(light: false))),
-            const Text('🍽️', style: TextStyle(fontSize: 56)),
-            Text(shopName, textAlign: TextAlign.center, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            const Text('Nhà Hàng Đôi • $kNguyen 👨 & $kNgocAnh 👩', style: TextStyle(fontSize: 14, color: Colors.deepOrange, fontWeight: FontWeight.w600)),
-            Text('Ngày $day  •  💰 $money  •  ${venue.emoji} ${venue.name}'),
-            const SizedBox(height: 16),
-            bigButton('📱 Chơi 1 máy (1–2 người)', () {
-              mode = 'local';
-              myRole = 'both';
-              startDay();
-            }, color: Colors.green),
-            bigButton('🌐 Tạo phòng (mời hàng xóm)', () => setState(() => screen = 'create')),
-            bigButton('🔑 Vào phòng bằng mã', () => setState(() => screen = 'join'), color: Colors.indigo),
-            bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-            bigButton('🐾 Thú cưng', () => setState(() => screen = 'pets'), color: Colors.pink.shade400),
-            bigButton('🛠️ Bố trí quán', () => setState(() => screen = 'layout'), color: Colors.brown),
-            bigButton('👤 Đổi chủ quán', () => setState(() => screen = 'profile'), color: Colors.blueGrey),
-            const SizedBox(height: 8),
-            const Text('Ai nấu ăn?', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: castPicker()),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text(
-                '👨‍🍳 $chefName – ĐẦU BẾP: chạm bếp nhận đơn → kéo (hoặc chạm) nguyên liệu vào bếp → chạm bếp để thái trên thớt 🔪 → '
-                'khi nấu, vặn núm − / + giữ lửa trong vùng xanh → rắc gia vị cho vạch nằm trong vùng xanh (thiếu thì nhạt, thừa thì mặn) → chạm bếp lấy món ra quầy.\n\n'
-                '🛎️ $waiterName – PHỤC VỤ: chạm khách để nhận order → chạm món ở quầy rồi chạm đúng bàn → chạm bàn bẩn để dọn.\n\n'
-                '🧰 SỰ CỐ (từ ngày 2): cháy bếp, mất điện, chuột, rò nước, khách gây gổ. Chọn đúng dụng cụ ở thanh 🧰 rồi chạm vào chỗ có sự cố.\n\n'
-                '⭐ Khách đặc biệt: Ông Bảy (VIP), Cô Lan (phê bình), Chú Tư (thợ săn), Bé Na (học sinh), Người lạ bí ẩn – mỗi người một khẩu vị và câu chuyện.\n\n'
-                '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ chung 1 quán.\n'
-                '🏁 Thi đấu: 2 máy, Nguyên chơi ở nhà hàng của Nguyên, Ngọc Anh ở nhà hàng của Ngọc Anh, ai bán được nhiều món hơn thì thắng.\n\n'
-                'Những ngày đầu khách đến thưa và kiên nhẫn, càng về sau càng đông và khó hơn.\n'
-                'Tiền và nâng cấp được lưu tự động, kể cả khi thoát app.',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ]),
-        ),
-      );
-
-  Widget _modeCard(String id, String title, String desc) {
-    final sel = createGame == id;
-    return GestureDetector(
-      onTap: () => setState(() => createGame = id),
-      child: Container(
-        width: 150,
-        padding: const EdgeInsets.all(12),
-        margin: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: sel ? Colors.orange.shade100 : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: sel ? Colors.deepOrange : Colors.grey.shade300, width: sel ? 3 : 1),
-        ),
-        child: Column(children: [
-          Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Text(desc, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+  // =====================================================================
+  //  TRUNG TÂM: thanh trên + 4 mục (Bản đồ, Cửa hàng, Quán của tôi, Chơi đôi)
+  // =====================================================================
+  Widget ownerBadge({double size = 46}) {
+    final na = owner == kNgocAnh;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(colors: na ? const [Color(0xFFFF9EC4), Color(0xFFFFC7A8)] : const [Color(0xFF8EC5FF), Color(0xFFB6F0D8)]),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: ClipOval(
+        child: Stack(clipBehavior: Clip.hardEdge, children: [
+          Positioned(
+            top: -size * 0.33,
+            left: (size - size * 1.9) / 2,
+            child: PersonAvatar(look: na ? ngocAnhLook : nguyenLook, role: '', height: size * 2.38),
+          ),
         ]),
       ),
     );
   }
 
-  Widget createScreen() => Center(
-        child: SingleChildScrollView(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Text('Chọn kiểu chơi', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _modeCard('coop', '🤝 Hợp tác', 'Chung 1 quán: một người nấu, một người phục vụ'),
-              _modeCard('race', '🏁 Thi đấu', 'Mỗi người 1 quán, ai bán nhiều món hơn thắng'),
-            ]),
-            const SizedBox(height: 12),
-            const Text('Ai nấu ăn?', style: TextStyle(fontSize: 16)),
-            const SizedBox(height: 6),
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: castPicker()),
-            const SizedBox(height: 12),
-            if (createGame == 'coop') ...[
-              const Text('Bạn muốn đóng vai nào?', style: TextStyle(fontSize: 16)),
-              const SizedBox(height: 8),
-              Wrap(spacing: 10, children: [
-                for (final r in ['chef', 'waiter'])
-                  ChoiceChip(label: Text(roleName(r), style: const TextStyle(fontSize: 16)), selected: createRole == r, onSelected: (_) => setState(() => createRole = r)),
+  Widget hubHeader() => Container(
+        padding: const EdgeInsets.fromLTRB(12, 6, 10, 12),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [Pal.ink, Pal.ink2]),
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(24)),
+        ),
+        child: Row(children: [
+          GestureDetector(onTap: () => setState(() => screen = 'profile'), child: ownerBadge()),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(shopName, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 5),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                StatPill('💰', '$money'),
+                StatPill('📅', 'Ngày $day'),
               ]),
-              const SizedBox(height: 6),
-              Text('Hàng xóm sẽ nhận vai còn lại: ${roleName(createRole == 'chef' ? 'waiter' : 'chef')}'),
-            ] else
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
-                child: Text('Mỗi người dùng quán, tiền và nâng cấp của riêng mình. Hai bên bắt đầu ngày cùng lúc.', textAlign: TextAlign.center),
+            ]),
+          ),
+          RoundIcon(Icons.menu_book_rounded, onTap: showGuide, tip: 'Hướng dẫn'),
+          const SizedBox(width: 6),
+          RoundIcon(Icons.tune_rounded, onTap: showSettings, tip: 'Cài đặt'),
+        ]),
+      );
+
+  Widget hubScreen() {
+    Widget content;
+    switch (hubTab) {
+      case 'shop':
+        content = shopTabs();
+        break;
+      case 'home':
+        content = homeTabs();
+        break;
+      case 'online':
+        content = onlineTab();
+        break;
+      default:
+        content = mapTab();
+    }
+    return Column(children: [
+      hubHeader(),
+      Expanded(child: content),
+      Padding(
+        padding: EdgeInsets.only(top: 6, bottom: MediaQuery.of(context).padding.bottom),
+        child: HubDock(
+          current: hubTab,
+          onSelect: (id) => setState(() => hubTab = id),
+          items: const [
+            ('map', '🗺️', 'Bản đồ'),
+            ('shop', '🛍️', 'Cửa hàng'),
+            ('home', '🏡', 'Quán tôi'),
+            ('online', '👥', 'Chơi đôi'),
+          ],
+        ),
+      ),
+    ]);
+  }
+
+  // ---------- Bản đồ ----------
+  Widget mapTab() {
+    final nTables = min(4 + lvl('tables'), venue.maxTables);
+    final nRecipes = venue.recipes.where((r) => recipes.contains(r.id)).length;
+    return Stack(children: [
+      Positioned(
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 150,
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
+          child: TownMap(owned: owned, current: venueId, night: style == 'night', onTap: onVenueTap),
+        ),
+      ),
+      Positioned(
+        top: 10,
+        left: 0,
+        right: 0,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(color: Colors.white.withAlpha(235), borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 8)]),
+            child: const Text('👆 Chạm vào một quán để chọn nơi làm việc', style: TextStyle(fontWeight: FontWeight.w700, color: Pal.text, fontSize: 12.5)),
+          ),
+        ),
+      ),
+      Positioned(
+        left: 12,
+        right: 12,
+        bottom: 6,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Pal.surface,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: const [BoxShadow(color: Color(0x33221B3F), blurRadius: 20, offset: Offset(0, 8))],
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              EmojiTile(venue.emoji, size: 52),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(venue.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Pal.text)),
+                  const SizedBox(height: 2),
+                  Text('🎯 Mục tiêu $goal💰  •  🪑 $nTables bàn  •  📖 $nRecipes món', style: const TextStyle(color: Pal.muted, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                ]),
               ),
-            const SizedBox(height: 16),
-            bigButton('Tạo phòng', createRoom),
-            bigButton('⬅ Quay lại', () => setState(() => screen = 'menu'), color: Colors.grey),
+            ]),
+            const SizedBox(height: 10),
+            GButton('Mở cửa ngày $day', emoji: '▶', onTap: () {
+              mode = 'local';
+              myRole = 'both';
+              startDay();
+            }),
           ]),
         ),
+      ),
+    ]);
+  }
+
+  void onVenueTap(String id) {
+    final v = venueById(id);
+    if (owned.contains(id)) {
+      if (id != venueId) Sound.sfx('door', vol: 0.6);
+      setState(() {
+        venueId = id;
+        activeStation = -1;
+      });
+      save();
+      return;
+    }
+    Sound.sfx('tap');
+    final busy = v.spawnMul < 0.8 ? 'rất đông' : (v.spawnMul < 1 ? 'đông' : 'vừa phải');
+    showGameSheet(context, title: v.name, emoji: v.emoji, builder: (ctx, setS) {
+      final afford = money >= v.cost;
+      return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 4, 20, 20), children: [
+        Text('Tối đa ${v.maxTables} bàn • ${v.recipes.length} món • khách đến $busy', style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final r in v.recipes)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: Pal.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: Pal.line)),
+              child: Text('${r.emoji} ${r.name}', style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+        ]),
+        const SizedBox(height: 18),
+        GButton(
+          afford ? 'Mua quán • 💰 ${v.cost}' : 'Cần thêm 💰 ${v.cost - money}',
+          emoji: '🔑',
+          onTap: afford
+              ? () {
+                  if (pay(v.cost)) {
+                    Sound.sfx('coin');
+                    setState(() {
+                      owned.add(v.id);
+                      recipes.addAll(v.recipes.where((r) => r.unlock == 0).map((r) => r.id));
+                      venueId = v.id;
+                      activeStation = -1;
+                    });
+                    save();
+                    Navigator.pop(ctx);
+                    snack('🎉 Đã khai trương ${v.name}!');
+                  }
+                }
+              : null,
+        ),
+      ]);
+    });
+  }
+
+  // ---------- Chơi đôi ----------
+  Widget _modeCard(String id, String emoji, String title, String desc) {
+    final sel = createGame == id;
+    return GestureDetector(
+      onTap: () {
+        Sound.sfx('tap');
+        setState(() => createGame = id);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: sel ? const Color(0xFFEAF1FF) : Pal.bg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: sel ? Pal.sky : Pal.line, width: sel ? 2.5 : 1),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(emoji, style: const TextStyle(fontSize: 26)),
+          const SizedBox(height: 4),
+          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Pal.text)),
+          const SizedBox(height: 2),
+          Text(desc, style: const TextStyle(fontSize: 12, color: Pal.muted, height: 1.3)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _roleCard(String r) {
+    final sel = createRole == r;
+    final name = r == 'chef' ? chefName : waiterName;
+    return GestureDetector(
+      onTap: () {
+        Sound.sfx('tap');
+        setState(() => createRole = r);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+        decoration: BoxDecoration(
+          color: sel ? const Color(0xFFFFEDE6) : Pal.bg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: sel ? Pal.coral : Pal.line, width: sel ? 2.5 : 1),
+        ),
+        child: Column(children: [
+          PersonAvatar(look: castLook(name, r), role: r, height: 96),
+          Text(name, style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+          Text(r == 'chef' ? 'Đầu bếp' : 'Phục vụ', style: const TextStyle(color: Pal.muted, fontSize: 12)),
+        ]),
+      ),
+    );
+  }
+
+  Widget onlineTab() => ListView(padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), children: [
+        AppCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Row(children: [
+              EmojiTile('🏠', tint: Pal.sky, size: 44),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Tạo phòng', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Pal.text)),
+                  Text('Người kia nhập mã 4 ký tự để vào', style: TextStyle(color: Pal.muted, fontSize: 12.5)),
+                ]),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: _modeCard('coop', '🤝', 'Hợp tác', 'Chung một quán: một người nấu, một người phục vụ')),
+              const SizedBox(width: 10),
+              Expanded(child: _modeCard('race', '🏁', 'Thi đấu', 'Mỗi người ở nhà hàng của mình, ai bán nhiều món hơn thắng')),
+            ]),
+            if (createGame == 'coop') ...[
+              const SizedBox(height: 14),
+              const Text('Bạn đóng vai nào?', style: TextStyle(fontWeight: FontWeight.w800, color: Pal.text)),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: _roleCard('chef')),
+                const SizedBox(width: 10),
+                Expanded(child: _roleCard('waiter')),
+              ]),
+            ],
+            const SizedBox(height: 14),
+            GButton('Tạo phòng', emoji: '✨', onTap: mode == 'guest' ? null : createRoom, colors: const [Pal.sky, Color(0xFF7B6CFF)]),
+          ]),
+        ),
+        const SizedBox(height: 12),
+        AppCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Row(children: [
+              EmojiTile('🔑', tint: Pal.mint, size: 44),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Vào phòng', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Pal.text)),
+                  Text('Nhập mã phòng của người kia', style: TextStyle(color: Pal.muted, fontSize: 12.5)),
+                ]),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            TextField(
+              controller: codeCtl,
+              enabled: mode != 'guest',
+              textAlign: TextAlign.center,
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 4,
+              style: const TextStyle(fontSize: 30, letterSpacing: 12, fontWeight: FontWeight.w900, color: Pal.text),
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: 'ABCD',
+                hintStyle: const TextStyle(color: Color(0xFFD8CFC2), letterSpacing: 12),
+                filled: true,
+                fillColor: Pal.bg,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (mode == 'guest')
+              Row(children: [
+                const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(netStatus, style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w600))),
+                SoftButton('Huỷ', onTap: () => leaveRoom(), tint: Pal.danger),
+              ])
+            else
+              GButton('Vào phòng', emoji: '🚪', onTap: joinRoom, colors: const [Pal.mint, Pal.mint2]),
+          ]),
+        ),
+      ]);
+
+  // ---------- Cài đặt & hướng dẫn (bảng trượt) ----------
+  Widget castCards(VoidCallback refresh) {
+    Widget opt(bool na) {
+      final sel = ngocAnhChef == na;
+      final chef = na ? kNgocAnh : kNguyen, waiter = na ? kNguyen : kNgocAnh;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () {
+            Sound.sfx('tap');
+            setState(() => ngocAnhChef = na);
+            save();
+            refresh();
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.fromLTRB(6, 2, 6, 10),
+            decoration: BoxDecoration(
+              color: sel ? const Color(0xFFFFEDE6) : Pal.surface,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: sel ? Pal.coral : Pal.line, width: sel ? 2.5 : 1),
+            ),
+            child: Column(children: [
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                PersonAvatar(look: castLook(chef, 'chef'), role: 'chef', height: 80),
+                PersonAvatar(look: castLook(waiter, 'waiter'), role: 'waiter', height: 80),
+              ]),
+              Text('$chef nấu', style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+              Text('$waiter phục vụ', style: const TextStyle(color: Pal.muted, fontSize: 12)),
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Row(children: [opt(false), const SizedBox(width: 10), opt(true)]);
+  }
+
+  void showSettings() {
+    showGameSheet(context, title: 'Cài đặt', emoji: '⚙️', builder: (ctx, setS) {
+      return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
+        AppCard(
+          padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+          child: Row(children: [
+            const Text('🔊', style: TextStyle(fontSize: 22)),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('Âm thanh & nhạc nền', style: TextStyle(fontWeight: FontWeight.w800, color: Pal.text))),
+            Switch(
+              value: Sound.enabled,
+              activeTrackColor: Pal.coral,
+              onChanged: (v) {
+                Sound.setEnabled(v);
+                save();
+                setS(() {});
+                setState(() {});
+              },
+            ),
+          ]),
+        ),
+        const SectionTitle('Ai nấu ăn?', sub: 'Áp dụng cho mọi chế độ chơi'),
+        castCards(() => setS(() {})),
+        const SectionTitle('Chủ quán của máy này'),
+        AppCard(
+          onTap: () {
+            Navigator.pop(ctx);
+            setState(() => screen = 'profile');
+          },
+          child: Row(children: [
+            ownerBadge(size: 40),
+            const SizedBox(width: 12),
+            Expanded(child: Text(shopName, style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.text))),
+            const Text('Đổi', style: TextStyle(color: Pal.coral, fontWeight: FontWeight.w900)),
+            const Icon(Icons.chevron_right_rounded, color: Pal.coral),
+          ]),
+        ),
+      ]);
+    });
+  }
+
+  Widget _guideCard(String emoji, String title, List<String> lines, {bool numbered = false, Color tint = Pal.coral}) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: AppCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              EmojiTile(emoji, tint: tint, size: 40),
+              const SizedBox(width: 10),
+              Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Pal.text))),
+            ]),
+            const SizedBox(height: 10),
+            for (var i = 0; i < lines.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 7),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  if (numbered)
+                    Container(
+                      width: 22,
+                      height: 22,
+                      margin: const EdgeInsets.only(right: 8, top: 1),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: tint, shape: BoxShape.circle),
+                      child: Text('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
+                    )
+                  else
+                    Padding(padding: const EdgeInsets.only(right: 8, top: 7), child: Container(width: 6, height: 6, decoration: BoxDecoration(color: tint, shape: BoxShape.circle))),
+                  Expanded(child: Text(lines[i], style: const TextStyle(color: Pal.text, height: 1.4))),
+                ]),
+              ),
+          ]),
+        ),
+      );
+
+  void showGuide() {
+    final pauseIt = screen == 'play' && mode == 'local' && !paused;
+    if (pauseIt) setState(() => paused = true);
+    final season = seasonName(venueId).toLowerCase();
+    showGameSheet(context, title: 'Cách chơi', emoji: '📖', builder: (ctx, setS) {
+      return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
+        _guideCard('👨‍🍳', 'Đầu bếp • $chefName', [
+          'Chạm vào bếp để nhận order mới.',
+          'Kéo nguyên liệu từ kệ thả vào bếp (hoặc chạm vào nguyên liệu).',
+          'Nguyên liệu có 🔪 nằm trên thớt: chạm vào bếp để thái từng nhát.',
+          'Khi nấu, chạm núm − / + để giữ kim lửa trong vùng xanh. Lửa quá to lâu sẽ cháy bếp.',
+          'Rắc $season cho vạch nằm trong vùng xanh: thiếu thì nhạt, thừa thì mặn.',
+          'Món chín: chạm bếp để đưa ra quầy trước khi cháy.',
+        ], numbered: true),
+        _guideCard('🛎️', 'Phục vụ • $waiterName', [
+          'Khách giơ tay ❗: chạm vào bàn để nhận order.',
+          'Chạm món ở quầy ra món, rồi chạm đúng bàn đang chờ món đó.',
+          'Khách ăn xong để lại bàn bẩn: chạm để dọn.',
+          'Nhìn qua cửa sổ để biết khách sắp vào quán.',
+        ], numbered: true, tint: Pal.mint),
+        _guideCard('🧰', 'Sự cố (từ ngày 2)', [
+          for (final it in incidentTypes) '${it.emoji} ${it.name}: ${it.hint} (${it.hp} lần).',
+        ], tint: Pal.danger),
+        _guideCard('⭐', 'Khách đặc biệt', [
+          '👑 Ông Bảy (VIP): gọi món đắt nhất, trả gấp đôi, ít kiên nhẫn.',
+          '🧐 Cô Lan (phê bình): món ngon và vừa vị thì viết bài khen, có thưởng.',
+          '🏹 Chú Tư (thợ săn): mê thịt, thích ăn đậm.',
+          '🎒 Bé Na (học sinh): gọi món rẻ, rất kiên nhẫn, thích ăn nhạt.',
+          '🕵️ Người lạ bí ẩn: hiếm gặp, hài lòng sẽ để lại phong bì.',
+        ], tint: Pal.gold),
+        _guideCard('🐾', 'Thú cưng', [
+          for (final p in petTypes) '${p.emoji} ${p.name}: ${p.perk}.',
+          'Giữ thú cưng từ 40♥ trở lên để chúng giúp quán. Chạm vào thú cưng trong lúc chơi để vuốt ve.',
+        ], tint: Pal.berry),
+        _guideCard('👥', 'Chơi đôi', [
+          '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ, chung một quán.',
+          '🏁 Thi đấu: Nguyên ở nhà hàng của Nguyên, Ngọc Anh ở nhà hàng của Ngọc Anh, ai bán nhiều món hơn thắng.',
+          '📱 Một máy: một người lo cả bếp lẫn sảnh, hoặc hai người ngồi cạnh nhau.',
+        ], tint: Pal.sky),
+        _guideCard('💡', 'Mẹo', [
+          'Những ngày đầu khách đến thưa và kiên nhẫn, càng về sau càng đông.',
+          'Đồ trang trí và đèn đẹp giúp khách chờ lâu hơn.',
+          'Tiền và tiến trình được lưu tự động, kể cả khi thoát app.',
+        ], tint: Pal.ink2),
+      ]);
+    }).then((_) {
+      if (pauseIt && mounted) setState(() => paused = false);
+    });
+  }
+
+  // ---------- Sảnh chờ online ----------
+  Widget codeTiles(String code) => Row(mainAxisSize: MainAxisSize.min, children: [
+        for (final ch in code.split(''))
+          Container(
+            width: 56,
+            height: 66,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 10, offset: Offset(0, 5))],
+            ),
+            child: Text(ch, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: Pal.ink)),
+          ),
+      ]);
+
+  Widget _stageStatus(bool ok, String text) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(color: Colors.white.withAlpha(24), borderRadius: BorderRadius.circular(18), border: Border.all(color: Colors.white.withAlpha(40))),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          ok
+              ? const Text('✅', style: TextStyle(fontSize: 18))
+              : const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white)),
+          const SizedBox(width: 10),
+          Flexible(child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+        ]),
       );
 
   Widget lobbyScreen() => Center(
         child: SingleChildScrollView(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text(race ? '🏁 Phòng thi đấu' : '🤝 Phòng hợp tác', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const Text('Mã phòng', style: TextStyle(fontSize: 16)),
-            Text(roomCode, style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold, letterSpacing: 8)),
-            Text(race ? 'Mỗi người chơi ở nhà hàng của mình' : '🏠 Chơi tại $shopName', style: const TextStyle(fontWeight: FontWeight.w600)),
-            if (!race) Text('Bạn: ${roleName(myRole)}  •  Hàng xóm: ${roleName(myRole == 'chef' ? 'waiter' : 'chef')}'),
-            const SizedBox(height: 8),
-            Text(guestJoined ? '✅ Hàng xóm đã vào phòng!' : '⏳ Đang chờ hàng xóm nhập mã...', style: const TextStyle(fontSize: 16)),
-            Text(netStatus, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-            const SizedBox(height: 16),
-            bigButton('▶ Bắt đầu ngày $day', guestJoined ? startDay : null),
-            bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-            bigButton('⬅ Đóng phòng', () => leaveRoom(), color: Colors.grey),
-          ]),
-        ),
-      );
-
-  Widget joinScreen() => Center(
-        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
           child: Column(children: [
-            const Text('Nhập mã phòng của hàng xóm', style: TextStyle(fontSize: 20)),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: 200,
-              child: TextField(
-                controller: codeCtl,
-                textAlign: TextAlign.center,
-                textCapitalization: TextCapitalization.characters,
-                maxLength: 4,
-                style: const TextStyle(fontSize: 32, letterSpacing: 6),
-                decoration: const InputDecoration(border: OutlineInputBorder(), counterText: ''),
+            Tag(race ? '🏁 PHÒNG THI ĐẤU' : '🤝 PHÒNG HỢP TÁC', color: Pal.gold),
+            const SizedBox(height: 18),
+            const Text('Mã phòng', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
+            codeTiles(roomCode),
+            const SizedBox(height: 14),
+            Text(race ? 'Mỗi người chơi ở nhà hàng của mình' : 'Chơi tại $shopName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+            if (!race)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('Bạn: ${roleName(myRole)}\nHàng xóm: ${roleName(myRole == 'chef' ? 'waiter' : 'chef')}',
+                    textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, height: 1.4)),
               ),
-            ),
-            if (mode == 'guest') Padding(padding: const EdgeInsets.all(8), child: Text(netStatus)),
-            bigButton(mode == 'guest' ? 'Đang vào phòng...' : 'Vào phòng', mode == 'guest' ? null : joinRoom, color: Colors.indigo),
-            bigButton('Quay lại', () {
-              if (mode == 'guest') {
-                leaveRoom();
-              } else {
-                setState(() => screen = 'menu');
-              }
-            }, color: Colors.grey),
+            const SizedBox(height: 18),
+            _stageStatus(guestJoined, guestJoined ? 'Hàng xóm đã vào phòng!' : 'Đang chờ hàng xóm nhập mã…'),
+            if (netStatus.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(netStatus, style: const TextStyle(color: Colors.white38, fontSize: 12))),
+            const SizedBox(height: 20),
+            GButton('Bắt đầu ngày $day', emoji: '▶', onTap: guestJoined ? startDay : null),
+            const SizedBox(height: 12),
+            Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
+              SoftButton('Cửa hàng', emoji: '🛍️', tint: Colors.white, onTap: () => setState(() => screen = 'shop')),
+              SoftButton('Đóng phòng', emoji: '🚪', tint: Colors.white, onTap: () => leaveRoom()),
+            ]),
           ]),
         ),
       );
 
   Widget waitScreen() => Center(
         child: SingleChildScrollView(
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Text('✅', style: TextStyle(fontSize: 56)),
-            Text('Đã vào phòng $roomCode', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text(race ? '🏁 Chế độ thi đấu' : 'Vai của bạn: ${roleName(myRole)}', style: const TextStyle(fontSize: 18)),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                race ? 'Chờ chủ phòng bắt đầu ngày mới...\nTrong lúc chờ bạn có thể mua sắm cho quán của mình.' : 'Chờ chủ phòng bắt đầu ngày mới...\n(họ có thể đang mua sắm trong cửa hàng)',
-                textAlign: TextAlign.center,
-              ),
-            ),
-            if (race) bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-            bigButton('⬅ Rời phòng', () => leaveRoom(), color: Colors.grey),
+          padding: const EdgeInsets.all(20),
+          child: Column(children: [
+            Tag(race ? '🏁 THI ĐẤU' : '🤝 HỢP TÁC', color: Pal.gold),
+            const SizedBox(height: 14),
+            if (!race) PersonAvatar(look: castLook(myRole == 'chef' ? chefName : waiterName, myRole), role: myRole, height: 150),
+            Text('Đã vào phòng $roomCode', style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            Text(race ? 'Bạn chơi ở $shopName' : 'Vai của bạn: ${roleName(myRole)}', style: const TextStyle(color: Colors.white70, fontSize: 15)),
+            const SizedBox(height: 18),
+            _stageStatus(false, race ? 'Chờ chủ phòng bắt đầu… trong lúc chờ có thể mua sắm cho quán của bạn' : 'Chờ chủ phòng bắt đầu ngày mới…'),
+            const SizedBox(height: 18),
+            Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
+              if (race) SoftButton('Cửa hàng', emoji: '🛍️', tint: Colors.white, onTap: () => setState(() => screen = 'shop')),
+              SoftButton('Rời phòng', emoji: '🚪', tint: Colors.white, onTap: () => leaveRoom()),
+            ]),
           ]),
         ),
       );
 
   // --- Màn chơi ---
-  Widget soundBtn({bool light = true}) => InkWell(
-        onTap: () {
-          setState(() => Sound.setEnabled(!Sound.enabled));
-          save();
-        },
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(color: light ? Colors.white24 : Colors.black12, shape: BoxShape.circle),
-          child: Icon(Sound.enabled ? Icons.volume_up : Icons.volume_off, color: light ? Colors.white : Colors.brown, size: 19),
+  Widget _hudIcon(IconData icon, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.only(left: 5),
+        child: Material(
+          color: Colors.white.withAlpha(30),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () {
+              Sound.sfx('tap');
+              onTap();
+            },
+            child: SizedBox(width: 34, height: 34, child: Icon(icon, color: Colors.white, size: 19)),
+          ),
         ),
       );
 
-  Widget _chip(String t, {Color? color}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(color: color ?? Colors.white24, borderRadius: BorderRadius.circular(10)),
-        child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-      );
-
-  Widget hud(String role) => Container(
-        width: double.infinity,
-        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFF3E2723), Color(0xFF6D4C41)])),
-        padding: const EdgeInsets.fromLTRB(8, 5, 4, 4),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-              child: Wrap(spacing: 4, runSpacing: 3, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                Text(role, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                _chip('📅 $day'),
-                _chip('💰 $money'),
-                _chip('⏱ ${max(0, timeLeft).ceil()}s', color: timeLeft < 15 ? Colors.red.shade400 : null),
-                _chip('🎯 $earned/$goal', color: earned >= goal ? Colors.green.shade600 : null),
-                if (race) _chip('🍽️ $served món', color: Colors.blue.shade600),
-              ]),
-            ),
-            soundBtn(),
-            const SizedBox(width: 4),
-            // Nút thoát ván
-            InkWell(
-              onTap: confirmExit,
-              borderRadius: BorderRadius.circular(20),
-              child: Container(
-                width: 32,
-                height: 32,
-                decoration: const BoxDecoration(color: Colors.white24, shape: BoxShape.circle),
-                child: const Icon(Icons.close, color: Colors.white, size: 20),
-              ),
-            ),
-          ]),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: (earned / goal).clamp(0.0, 1.0),
-              minHeight: 4,
-              color: Colors.amber,
-              backgroundColor: Colors.white24,
-            ),
-          ),
+  Widget hud(String role) {
+    final frac = (earned / goal).clamp(0.0, 1.0).toDouble();
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(gradient: LinearGradient(colors: [Pal.ink, Pal.ink2])),
+      padding: const EdgeInsets.fromLTRB(10, 6, 8, 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          // vòng tiến độ mục tiêu ngày
           SizedBox(
-            height: 16,
-            child: AnimatedOpacity(
-              opacity: msgT > 0 ? 1 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: Text(msg, style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.w600)),
+            width: 38,
+            height: 38,
+            child: Stack(alignment: Alignment.center, children: [
+              CircularProgressIndicator(value: frac, strokeWidth: 4, color: frac >= 1 ? Pal.mint2 : Pal.gold, backgroundColor: Colors.white24),
+              Text(frac >= 1 ? '🎯' : '${(frac * 100).round()}%', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(role, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 3),
+              Wrap(spacing: 5, runSpacing: 3, children: [
+                StatPill('💰', '$money'),
+                StatPill('⏱', '${max(0, timeLeft).ceil()}s', color: timeLeft < 15 ? Pal.danger : null),
+                StatPill('🎯', '$earned/$goal', color: earned >= goal ? Pal.mint : null),
+                if (race) StatPill('🍽️', '$served', color: Pal.sky),
+              ]),
+            ]),
+          ),
+          _hudIcon(Icons.menu_book_rounded, showGuide),
+          _hudIcon(Sound.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded, () {
+            setState(() => Sound.setEnabled(!Sound.enabled));
+            save();
+          }),
+          _hudIcon(Icons.close_rounded, confirmExit),
+        ]),
+        SizedBox(
+          height: 18,
+          child: AnimatedOpacity(
+            opacity: msgT > 0 ? 1 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(msg, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Pal.gold, fontSize: 12, fontWeight: FontWeight.w700)),
             ),
           ),
-        ]),
-      );
+        ),
+      ]),
+    );
+  }
 
   /// Thanh điểm của đối thủ (thi đấu)
   Widget oppBar() {
@@ -1835,239 +2193,282 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   //  MÀN HÌNH: CHỦ QUÁN, THÚ CƯNG, BỐ TRÍ
   // =====================================================================
   Widget _topBar(String title, VoidCallback onBackTap) => Container(
-        color: Colors.teal,
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(8, 6, 12, 10),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(colors: [Pal.ink, Pal.ink2]),
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(22)),
+        ),
         child: Row(children: [
-          IconButton(onPressed: onBackTap, icon: const Icon(Icons.arrow_back, color: Colors.white)),
-          Expanded(child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
-          Padding(padding: const EdgeInsets.only(right: 12), child: Text('💰 $money', style: const TextStyle(color: Colors.white, fontSize: 16))),
+          RoundIcon(Icons.arrow_back_rounded, onTap: onBackTap, tip: 'Quay lại'),
+          const SizedBox(width: 10),
+          Expanded(child: Text(title, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900))),
+          StatPill('💰', '$money'),
         ]),
       );
 
+  // ---------- Chọn chủ quán ----------
   Widget profileScreen() => Center(
         child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
           child: Column(children: [
-            const SizedBox(height: 16),
-            const Text('Máy này là của ai?', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: Text(
-                'Mỗi người có một nhà hàng riêng: tiền, nâng cấp, thú cưng và cách bố trí đều lưu riêng. Chơi 2 máy thì mỗi máy chọn một người.',
-                textAlign: TextAlign.center,
-              ),
+            const Text('🍽️ Nhà Hàng Đôi', style: TextStyle(color: Pal.gold, fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 1)),
+            const SizedBox(height: 8),
+            const Text('Máy này là của ai?', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            const Text(
+              'Mỗi người có một nhà hàng riêng: tiền, nâng cấp, thú cưng và cách bố trí đều lưu riêng.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70, height: 1.4),
             ),
-            Wrap(spacing: 16, runSpacing: 16, alignment: WrapAlignment.center, children: [
-              _ownerCard(kNguyen, nguyenLook, 'chef'),
-              _ownerCard(kNgocAnh, ngocAnhLook, 'waiter'),
+            const SizedBox(height: 20),
+            Row(children: [
+              Expanded(child: _ownerCard(kNguyen, nguyenLook, 'chef')),
+              const SizedBox(width: 14),
+              Expanded(child: _ownerCard(kNgocAnh, ngocAnhLook, 'waiter')),
             ]),
-            const SizedBox(height: 12),
-            if (owner.isNotEmpty) bigButton('⬅ Quay lại', () => setState(() => screen = 'menu'), color: Colors.grey),
+            const SizedBox(height: 18),
+            if (owner.isNotEmpty) SoftButton('Quay lại', emoji: '⬅', tint: Colors.white, onTap: () => setState(() => screen = 'menu')),
           ]),
         ),
       );
 
   Widget _ownerCard(String name, Look look, String role) {
     final sel = owner == name;
+    final na = name == kNgocAnh;
     return GestureDetector(
       onTap: () {
         Sound.sfx('tap');
         chooseOwner(name);
       },
-      child: Container(
-        width: 150,
-        padding: const EdgeInsets.all(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.fromLTRB(8, 10, 8, 14),
         decoration: BoxDecoration(
-          color: sel ? Colors.orange.shade100 : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: sel ? Colors.deepOrange : Colors.grey.shade300, width: sel ? 3 : 1),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: na ? const [Color(0xFFFFE1EC), Colors.white] : const [Color(0xFFDDEBFF), Colors.white],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: sel ? Pal.gold : Colors.transparent, width: 3),
+          boxShadow: const [BoxShadow(color: Color(0x55000000), blurRadius: 16, offset: Offset(0, 8))],
         ),
         child: Column(children: [
-          PersonAvatar(look: look, role: role, name: name, height: 150),
-          const SizedBox(height: 6),
-          Text('Nhà hàng của $name', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
+          PersonAvatar(look: look, role: role, height: 160),
+          Text(name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Pal.text)),
+          const SizedBox(height: 2),
+          Text('Nhà hàng của $name', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontSize: 12.5)),
+          if (sel) const Padding(padding: EdgeInsets.only(top: 8), child: Tag('Đang chọn', color: Pal.coral)),
         ]),
       ),
     );
   }
 
-  Widget petsScreen() => Column(children: [
-        _topBar('🐾 Thú cưng – $shopName', () => setState(() => screen = 'menu')),
-        Expanded(
-          child: ListView(padding: const EdgeInsets.all(12), children: [
-            const Text(
-              'Vuốt ve (tới 60♥) và cho ăn (tới 100♥) để thú cưng vui vẻ. Từ 40♥ trở lên thú cưng mới giúp quán. Mỗi ngày trôi qua thú cưng giảm 20♥. '
-              'Trong lúc chơi, chạm vào thú cưng để vuốt ve.',
-              style: TextStyle(color: Colors.black54),
-            ),
-            const SizedBox(height: 8),
-            for (final p in petTypes) _petCard(p),
-          ]),
+  // ---------- Quán của tôi: bố trí + thú cưng ----------
+  Widget homeTabs() => DefaultTabController(
+        length: 2,
+        child: Column(children: [
+          const PillTabs(['🛠️ Bố trí quán', '🐾 Thú cưng']),
+          Expanded(
+            child: TabBarView(physics: const NeverScrollableScrollPhysics(), children: [layoutPane(), petsPane()]),
+          ),
+        ]),
+      );
+
+  Widget petsPane() => ListView(padding: const EdgeInsets.fromLTRB(14, 8, 14, 12), children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 4, 4, 10),
+          child: Text(
+            'Từ 40♥ trở lên thú cưng mới giúp quán. Mỗi ngày trôi qua giảm 20♥. Trong lúc chơi, chạm vào thú cưng để vuốt ve.',
+            style: TextStyle(color: Pal.muted, fontSize: 12.5, height: 1.4),
+          ),
         ),
+        for (final p in petTypes) _petCard(p),
       ]);
 
   Widget _petCard(PetType p) {
     final has = pets.contains(p.id);
     final hp = petHappy[p.id] ?? 0;
     final voice = p.id == 'dog' ? 'woof' : (p.id == 'parrot' ? 'chirp' : (p.id == 'hamster' ? 'squeak' : 'purr'));
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: AppCard(
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(p.emoji, style: const TextStyle(fontSize: 44)),
+          EmojiTile(p.emoji, tint: Pal.berry, size: 64),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(p.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-              Text(p.perk, style: const TextStyle(fontSize: 12)),
+              Row(children: [
+                Expanded(child: Text(p.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Pal.text))),
+                if (!has) PriceButton(p.cost, afford: money >= p.cost, onTap: () {
+                  if (pay(p.cost)) {
+                    Sound.sfx(voice);
+                    setState(() {
+                      pets.add(p.id);
+                      petHappy[p.id] = 80;
+                    });
+                    save();
+                  }
+                }),
+              ]),
+              const SizedBox(height: 2),
+              Text(p.perk, style: const TextStyle(color: Pal.muted, fontSize: 12.5, height: 1.3)),
               if (has) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 Row(children: [
-                  Text('${hp >= 40 ? '😊' : '😿'} $hp♥  '),
+                  Text(hp >= 40 ? '💖' : '💔', style: const TextStyle(fontSize: 14)),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: hp / 100,
-                        minHeight: 8,
-                        color: hp >= 40 ? Colors.pink : Colors.grey,
-                        backgroundColor: Colors.pink.shade50,
-                      ),
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(value: hp / 100, minHeight: 10, color: hp >= 40 ? Pal.berry : Pal.muted, backgroundColor: const Color(0xFFFBE3EC)),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  Text('$hp♥', style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
                 ]),
-                const SizedBox(height: 6),
-                Wrap(spacing: 8, runSpacing: 4, children: [
-                  OutlinedButton(
-                    onPressed: () {
-                      Sound.sfx(voice);
-                      setState(() => petHappy[p.id] = hp >= 60 ? hp : min(60, hp + 8));
+                const SizedBox(height: 10),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  SoftButton('Vuốt ve', emoji: '🤚', tint: Pal.berry, onTap: () {
+                    Sound.sfx(voice);
+                    setState(() => petHappy[p.id] = hp >= 60 ? hp : min(60, hp + 8));
+                    save();
+                  }),
+                  SoftButton('Cho ăn • 5💰', emoji: '🍖', tint: Pal.coral, onTap: () {
+                    if (pay(5)) {
+                      Sound.sfx('coin');
+                      setState(() => petHappy[p.id] = min(100, hp + 30));
                       save();
-                    },
-                    child: const Text('🤚 Vuốt ve'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (pay(5)) {
-                        Sound.sfx('coin');
-                        setState(() => petHappy[p.id] = min(100, hp + 30));
-                        save();
-                      }
-                    },
-                    child: const Text('🍖 Cho ăn (5💰)'),
-                  ),
+                    }
+                  }),
                 ]),
               ],
             ]),
           ),
-          if (!has)
-            ElevatedButton(
-              onPressed: () {
-                if (pay(p.cost)) {
-                  Sound.sfx(voice);
-                  setState(() {
-                    pets.add(p.id);
-                    petHappy[p.id] = 80;
-                  });
-                  save();
-                }
-              },
-              child: Text('💰${p.cost}'),
-            ),
         ]),
       ),
     );
   }
 
-  Widget layoutScreen() {
+  Widget layoutPane() {
     final n = min(4 + lvl('tables'), venue.maxTables);
     return Column(children: [
-      _topBar('🛠️ Bố trí – $shopName', () => setState(() => screen = 'menu')),
-      Container(
-        color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            const Text('Ánh sáng: '),
-            for (final lm in lightModes)
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: ChoiceChip(
-                  label: Text(lm[1]),
-                  selected: light == lm[0],
-                  onSelected: (_) {
-                    setState(() => light = lm[0]);
-                    save();
-                  },
-                ),
+      SizedBox(
+        height: 46,
+        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.fromLTRB(14, 6, 14, 4), children: [
+          for (final lm in lightModes)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(lm[1]),
+                selected: light == lm[0],
+                showCheckmark: false,
+                onSelected: (_) {
+                  Sound.sfx('tap');
+                  setState(() => light = lm[0]);
+                  save();
+                },
               ),
-          ]),
-        ),
+            ),
+        ]),
       ),
       Expanded(
-        child: LayoutEditor(
-          tableCount: n,
-          tablePos: tablePos,
-          decos: decos,
-          venueId: venueId,
-          style: style,
-          light: light,
-          onChanged: (tp, ds) {
-            setState(() {
-              tablePos = tp;
-              decos = ds;
-            });
-            save();
-          },
-          onRemoveDeco: (k) {
-            if (k < 0 || k >= decos.length) return;
-            final d = decos.removeAt(k);
-            final dt = decoById(d.type);
-            final refund = dt.cost ~/ 2;
-            setState(() => money += refund);
-            save();
-            snack('Đã cất ${dt.name}, nhận lại $refund💰');
-          },
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(14, 4, 14, 6),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(22), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 12, offset: Offset(0, 4))]),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: LayoutEditor(
+              tableCount: n,
+              tablePos: tablePos,
+              decos: decos,
+              venueId: venueId,
+              style: style,
+              light: light,
+              onChanged: (tp, ds) {
+                setState(() {
+                  tablePos = tp;
+                  decos = ds;
+                });
+                save();
+              },
+              onRemoveDeco: (k) {
+                if (k < 0 || k >= decos.length) return;
+                final d = decos.removeAt(k);
+                final dt = decoById(d.type);
+                final refund = dt.cost ~/ 2;
+                setState(() => money += refund);
+                save();
+                snack('Đã cất ${dt.name}, nhận lại $refund💰');
+              },
+            ),
+          ),
         ),
       ),
-      Container(
-        color: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 10, 0),
         child: Row(children: [
-          Expanded(child: Text('${decos.length} đồ trang trí • mua thêm ở Cửa hàng', style: const TextStyle(fontSize: 12))),
+          Expanded(child: Text('${decos.length} đồ trang trí • kéo để di chuyển, nhấn giữ để cất', style: const TextStyle(fontSize: 12, color: Pal.muted))),
           TextButton(
             onPressed: () {
               setState(() => tablePos = List<Offset?>.filled(12, null));
               save();
             },
-            child: const Text('↺ Xếp bàn mặc định'),
+            child: const Text('↺ Xếp lại bàn', style: TextStyle(fontWeight: FontWeight.w800)),
           ),
         ]),
       ),
     ]);
   }
 
-  // --- Kết thúc ngày ---
+  // ---------- Kết thúc ngày ----------
   Widget raceResult() {
     if (oppScr != 'end') {
-      return const Text('⏳ Đang chờ hàng xóm phục vụ nốt khách...', style: TextStyle(fontSize: 15));
+      return _stageStatus(false, 'Đang chờ hàng xóm phục vụ nốt khách…');
     }
     final diff = served != oppServed ? served - oppServed : earned - oppEarned;
     final title = diff > 0 ? '🏆 Bạn thắng!' : (diff < 0 ? '😢 Hàng xóm thắng' : '🤝 Hoà!');
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.orange, width: 2)),
+    Widget col(String who, int sv, int ea, bool lead) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: lead ? const Color(0xFFFFF4D6) : Pal.bg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: lead ? Pal.gold : Pal.line, width: lead ? 2 : 1),
+            ),
+            child: Column(children: [
+              Text(who, style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+              const SizedBox(height: 4),
+              Text('🍽️ $sv', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Pal.text)),
+              Text('💰 $ea', style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+        );
+    return AppCard(
       child: Column(children: [
-        Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        Table(defaultColumnWidth: const IntrinsicColumnWidth(), children: [
-          const TableRow(children: [Text(''), Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Bạn', style: TextStyle(fontWeight: FontWeight.bold))), Text('Hàng xóm', style: TextStyle(fontWeight: FontWeight.bold))]),
-          TableRow(children: [const Text('🍽️ Món bán'), Center(child: Text('$served')), Center(child: Text('$oppServed'))]),
-          TableRow(children: [const Text('💰 Thu nhập'), Center(child: Text('$earned')), Center(child: Text('$oppEarned'))]),
+        Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Pal.text)),
+        const SizedBox(height: 10),
+        Row(children: [
+          col(owner.isEmpty ? 'Bạn' : owner, served, earned, diff > 0),
+          const SizedBox(width: 10),
+          col(oppOwner.isEmpty ? 'Hàng xóm' : oppOwner, oppServed, oppEarned, diff < 0),
         ]),
       ]),
     );
   }
+
+  Widget _statTile(String emoji, String value, String label) => Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          decoration: BoxDecoration(color: Colors.white.withAlpha(22), borderRadius: BorderRadius.circular(18), border: Border.all(color: Colors.white.withAlpha(35))),
+          child: Column(children: [
+            Text(emoji, style: const TextStyle(fontSize: 20)),
+            const SizedBox(height: 4),
+            Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, fontFeatures: [FontFeature.tabularFigures()])),
+            Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60, fontSize: 11.5, fontWeight: FontWeight.w600)),
+          ]),
+        ),
+      );
 
   Widget endScreen() {
     final avg = starsLog.isEmpty ? 0.0 : starsLog.reduce((a, b) => a + b) / starsLog.length;
@@ -2080,9 +2481,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     // Thắng: thi đấu thì phải hơn hàng xóm, còn lại là đạt mục tiêu ngày
     final win = raceDone ? raceDiff > 0 : !hasOpp && reached;
     final sad = raceDone ? raceDiff < 0 : !hasOpp && !reached;
+    final waitOpp = hasOpp && oppScr == 'play' && !peerLost;
     final content = Center(
       child: SingleChildScrollView(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+        child: Column(children: [
+          Tag('HẾT NGÀY ${day - 1}', color: Pal.gold),
           if (win || sad)
             DancingCouple(
               happy: win,
@@ -2092,35 +2496,53 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               rightName: waiterName,
               height: 170,
             ),
-          if (race) ...[raceResult(), const SizedBox(height: 16)],
-          Text(reached ? '🎉 Đạt mục tiêu! (+50 thưởng)' : '😅 Chưa đạt mục tiêu', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(reached ? 'Đạt mục tiêu! +50💰 thưởng' : 'Chưa đạt mục tiêu',
+              style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 14),
+          if (race) ...[raceResult(), const SizedBox(height: 14)],
+          Row(children: [
+            _statTile('💰', '$earned', 'Thu nhập / $prevGoal'),
+            const SizedBox(width: 8),
+            _statTile('🍽️', '$served', 'Đã phục vụ'),
+            const SizedBox(width: 8),
+            _statTile('🚶', '$lost', 'Bỏ về'),
+            const SizedBox(width: 8),
+            _statTile('⭐', avg.toStringAsFixed(1), 'Đánh giá'),
+          ]),
           const SizedBox(height: 12),
-          Text('Thu nhập ngày: $earned / $prevGoal'),
-          Text('Đã phục vụ: $served   •   Khách bỏ về: $lost'),
-          Text('Đánh giá TB: ${avg.toStringAsFixed(1)} ⭐'),
-          if (remote && bk != null)
-            Text('Quán của bạn cũng nhận +$earned 💰 (tổng: ${bk[0]})', style: const TextStyle(fontWeight: FontWeight.bold))
-          else
-            Text('Tổng tiền quán: 💰 $money'),
-          const Text('💾 Đã lưu tiến trình', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          Text(
+            remote && bk != null ? 'Quán của bạn cũng nhận +$earned💰 • tổng ${bk[0]}💰' : 'Tổng tiền quán: $money💰 • đã lưu',
+            style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 20),
-          if (isGuest) ...[
-            if (race) bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-            const Padding(padding: EdgeInsets.all(8), child: Text('Chờ chủ phòng bắt đầu ngày tiếp theo...')),
-          ] else ...[
-            bigButton('🛒 Cửa hàng', () => setState(() => screen = 'shop'), color: Colors.teal),
-            bigButton(
-              hasOpp && oppScr == 'play' && !peerLost ? '⏳ Chờ hàng xóm xong ngày' : '▶ Ngày tiếp theo',
-              hasOpp && oppScr == 'play' && !peerLost ? null : startDay,
-            ),
-          ],
-          bigButton(mode == 'local' ? '⬅ Về menu' : '⬅ Rời phòng', () {
-            if (mode == 'local') {
-              setState(() => screen = 'menu');
-            } else {
-              leaveRoom();
-            }
-          }, color: Colors.grey),
+          if (isGuest)
+            _stageStatus(false, 'Chờ chủ phòng bắt đầu ngày tiếp theo…')
+          else
+            GButton(waitOpp ? 'Chờ hàng xóm xong ngày' : 'Ngày tiếp theo', emoji: waitOpp ? '⏳' : '▶', onTap: waitOpp ? null : startDay),
+          const SizedBox(height: 12),
+          Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.center, children: [
+            if (!isGuest || race)
+              SoftButton('Cửa hàng', emoji: '🛍️', tint: Colors.white, onTap: () {
+                if (mode == 'local') {
+                  setState(() {
+                    screen = 'menu';
+                    hubTab = 'shop';
+                  });
+                } else {
+                  setState(() => screen = 'shop');
+                }
+              }),
+            SoftButton(mode == 'local' ? 'Về bản đồ' : 'Rời phòng', emoji: mode == 'local' ? '🗺️' : '🚪', tint: Colors.white, onTap: () {
+              if (mode == 'local') {
+                setState(() {
+                  screen = 'menu';
+                  hubTab = 'map';
+                });
+              } else {
+                leaveRoom();
+              }
+            }),
+          ]),
         ]),
       ),
     );
@@ -2128,135 +2550,108 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     return Stack(children: [content, const Positioned.fill(child: ConfettiLayer())]);
   }
 
-  // --- Cửa hàng (chỉ local / host) ---
-  Widget shopScreen() {
-    Widget header(String t) => Padding(padding: const EdgeInsets.fromLTRB(12, 16, 12, 4), child: Text(t, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)));
-    return Column(children: [
-      Container(
-        color: Colors.teal,
-        padding: const EdgeInsets.all(12),
-        child: Row(children: [
-          IconButton(onPressed: () => setState(() => screen = shopBack), icon: const Icon(Icons.arrow_back, color: Colors.white)),
-          Text('Cửa hàng   💰 $money', style: const TextStyle(color: Colors.white, fontSize: 20)),
+  // ---------- Cửa hàng ----------
+  Widget shopScreen() => Column(children: [
+        _topBar('🛍️ Cửa hàng', () => setState(() => screen = shopBack)),
+        Expanded(child: shopTabs()),
+      ]);
+
+  Widget _list(List<Widget> items, {String? note}) => ListView(padding: const EdgeInsets.fromLTRB(14, 8, 14, 12), children: [
+        if (note != null) Padding(padding: const EdgeInsets.fromLTRB(4, 2, 4, 10), child: Text(note, style: const TextStyle(color: Pal.muted, fontSize: 12.5))),
+        ...items,
+      ]);
+
+  Widget shopTabs() => DefaultTabController(
+        length: 4,
+        child: Column(children: [
+          const PillTabs(['🔧 Nâng cấp', '📖 Món ăn', '🪴 Trang trí', '🎨 Hoạt cảnh']),
+          Expanded(
+            child: TabBarView(children: [
+              _list([
+                for (final u in upgrades)
+                  ShopRow(
+                    emoji: u.emoji,
+                    title: u.name,
+                    sub: '${u.desc}\nCấp ${lvl(u.id)}/${u.max}',
+                    trailing: lvl(u.id) >= u.max
+                        ? const Tag('TỐI ĐA')
+                        : PriceButton(u.cost(lvl(u.id)), afford: money >= u.cost(lvl(u.id)), onTap: () {
+                            if (pay(u.cost(lvl(u.id)))) {
+                              Sound.sfx('coin');
+                              lv[u.id] = lvl(u.id) + 1;
+                              save();
+                              setState(() {});
+                            }
+                          }),
+                  ),
+              ]),
+              _list(note: 'Món của ${venue.emoji} ${venue.name}. Đổi quán trên bản đồ để xem món của quán khác.', [
+                for (final r in venue.recipes)
+                  ShopRow(
+                    emoji: r.emoji,
+                    title: r.name,
+                    tint: Pal.mint,
+                    sub: '${r.ings.map(ingEmoji).join(' ')}  •  ⏱ ${r.cook}s  •  bán ${r.price}💰',
+                    trailing: recipes.contains(r.id)
+                        ? const Tag('✓ Đã có')
+                        : PriceButton(r.unlock, afford: money >= r.unlock, onTap: () {
+                            if (pay(r.unlock)) {
+                              Sound.sfx('coin');
+                              recipes.add(r.id);
+                              save();
+                              setState(() {});
+                            }
+                          }),
+                  ),
+              ]),
+              _list(note: 'Mua xong vào 🏡 Quán tôi → Bố trí để kéo thả. Mỗi món giúp khách chờ lâu hơn.', [
+                for (final dt in decoTypes)
+                  ShopRow(
+                    emoji: dt.emoji,
+                    leading: DecoPreview(type: dt.id, size: 64),
+                    title: dt.name,
+                    tint: Pal.gold,
+                    sub: '${dt.wall ? 'Treo tường' : 'Đặt trên sàn'} • đang có ${decos.where((d) => d.type == dt.id).length}',
+                    trailing: PriceButton(dt.cost, afford: money >= dt.cost, onTap: () {
+                      if (pay(dt.cost)) {
+                        Sound.sfx('coin');
+                        decos.add(Deco(dt.id, 0.15 + rnd.nextDouble() * 0.7, dt.wall ? 0 : 0.2 + rnd.nextDouble() * 0.6));
+                        save();
+                        setState(() {});
+                        snack('Đã mua ${dt.name}! Vào 🏡 Quán tôi để sắp xếp.');
+                      }
+                    }),
+                  ),
+              ]),
+              _list([
+                for (final st in sceneStyles)
+                  ShopRow(
+                    emoji: st.emoji,
+                    title: st.name,
+                    tint: Pal.sky,
+                    sub: '${st.desc}. Có nhạc nền riêng.',
+                    highlight: st.id == style,
+                    trailing: styles.contains(st.id)
+                        ? (st.id == style
+                            ? const Tag('Đang dùng', color: Pal.coral)
+                            : SoftButton('Chọn', tint: Pal.sky, onTap: () {
+                                style = st.id;
+                                save();
+                                setState(() {});
+                              }))
+                        : PriceButton(st.cost, afford: money >= st.cost, onTap: () {
+                            if (pay(st.cost)) {
+                              Sound.sfx('coin');
+                              styles.add(st.id);
+                              style = st.id;
+                              save();
+                              setState(() {});
+                            }
+                          }),
+                  ),
+              ]),
+            ]),
+          ),
         ]),
-      ),
-      Expanded(
-        child: ListView(children: [
-          header('🔧 Nâng cấp & trang trí'),
-          for (final u in upgrades)
-            ListTile(
-              leading: Text(u.emoji, style: const TextStyle(fontSize: 28)),
-              title: Text('${u.name}  (${lvl(u.id)}/${u.max})'),
-              subtitle: Text(u.desc),
-              trailing: lvl(u.id) >= u.max
-                  ? const Text('MAX')
-                  : ElevatedButton(
-                      onPressed: () {
-                        if (pay(u.cost(lvl(u.id)))) {
-                          lv[u.id] = lvl(u.id) + 1;
-                          save();
-                          setState(() {});
-                        }
-                      },
-                      child: Text('💰${u.cost(lvl(u.id))}')),
-            ),
-          header('📖 Công thức mới – ${venue.emoji} ${venue.name}'),
-          for (final r in venue.recipes)
-            ListTile(
-              leading: Text(r.emoji, style: const TextStyle(fontSize: 28)),
-              title: Text('${r.name}  •  💰${r.price}'),
-              subtitle: Text('${r.ings.map(ingEmoji).join(' ')}   ⏱${r.cook}s'),
-              trailing: recipes.contains(r.id)
-                  ? const Icon(Icons.check_circle, color: Colors.green)
-                  : ElevatedButton(
-                      onPressed: () {
-                        if (pay(r.unlock)) {
-                          recipes.add(r.id);
-                          save();
-                          setState(() {});
-                        }
-                      },
-                      child: Text('💰${r.unlock}')),
-            ),
-          header('🪑 Đồ trang trí (kéo thả ở "Bố trí quán")'),
-          for (final dt in decoTypes)
-            ListTile(
-              leading: Text(dt.emoji, style: const TextStyle(fontSize: 28)),
-              title: Text(dt.name),
-              subtitle: Text('${dt.wall ? 'Treo tường' : 'Đặt trên sàn'} • đang có ${decos.where((d) => d.type == dt.id).length} • khách chờ lâu hơn 1 giây/món'),
-              trailing: ElevatedButton(
-                onPressed: () {
-                  if (pay(dt.cost)) {
-                    decos.add(Deco(dt.id, 0.15 + rnd.nextDouble() * 0.7, dt.wall ? 0 : 0.2 + rnd.nextDouble() * 0.6));
-                    save();
-                    setState(() {});
-                    snack('Đã mua ${dt.name}! Vào 🛠️ Bố trí quán để kéo thả.');
-                  }
-                },
-                child: Text('💰${dt.cost}'),
-              ),
-            ),
-          header('🎨 Hoạt cảnh nhà hàng'),
-          for (final st in sceneStyles)
-            ListTile(
-              leading: Text(st.emoji, style: const TextStyle(fontSize: 28)),
-              title: Text(st.name),
-              subtitle: Text(st.desc),
-              selected: st.id == style,
-              trailing: styles.contains(st.id)
-                  ? (st.id == style
-                      ? const Text('Đang dùng')
-                      : OutlinedButton(
-                          onPressed: () {
-                            style = st.id;
-                            save();
-                            setState(() {});
-                          },
-                          child: const Text('Chọn')))
-                  : ElevatedButton(
-                      onPressed: () {
-                        if (pay(st.cost)) {
-                          styles.add(st.id);
-                          style = st.id;
-                          save();
-                          setState(() {});
-                        }
-                      },
-                      child: Text('💰${st.cost}')),
-            ),
-          header('🏪 Chi nhánh & mô hình kinh doanh'),
-          for (final v in venues)
-            ListTile(
-              leading: Text(v.emoji, style: const TextStyle(fontSize: 28)),
-              title: Text(v.name),
-              subtitle: Text('Tối đa ${v.maxTables} bàn  •  ${v.recipes.length} món'),
-              selected: v.id == venueId,
-              trailing: owned.contains(v.id)
-                  ? (v.id == venueId
-                      ? const Text('Đang dùng')
-                      : OutlinedButton(
-                          onPressed: () {
-                            venueId = v.id;
-                            activeStation = -1;
-                            save();
-                            setState(() {});
-                          },
-                          child: const Text('Chuyển')))
-                  : ElevatedButton(
-                      onPressed: () {
-                        if (pay(v.cost)) {
-                          owned.add(v.id);
-                          recipes.addAll(v.recipes.where((r) => r.unlock == 0).map((r) => r.id));
-                          venueId = v.id;
-                          save();
-                          setState(() {});
-                        }
-                      },
-                      child: Text('💰${v.cost}')),
-            ),
-          const SizedBox(height: 30),
-        ]),
-      ),
-    ]);
-  }
+      );
 }
