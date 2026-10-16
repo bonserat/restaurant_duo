@@ -959,6 +959,7 @@ class DiningScene extends StatefulWidget {
   final String light;
   final List<String> pets;
   final List<Incident> incidents;
+  final List<OutsideGuest> outside; // khách xếp hàng ngoài cửa
   final String? tool; // dụng cụ đang cầm
   final void Function(int)? onIncident;
   final void Function(String)? onPet;
@@ -979,6 +980,7 @@ class DiningScene extends StatefulWidget {
     this.light = 'day',
     this.pets = const [],
     this.incidents = const [],
+    this.outside = const [],
     this.tool,
     this.onIncident,
     this.onPet,
@@ -1846,6 +1848,20 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       final ss = cu.npc == 'student' ? ps * 0.82 : ps;
       drawPerson(c, Offset(x, footY), ss, custLook(cu.npc, _seed[i]), walking: true, phase: t * 12 + i);
     }
+    // khách xếp hàng ngoài cửa (quán kín bàn): người đầu hàng đứng sát cửa
+    final queueHeads = <(Offset, double)>[];
+    final gap = ps * 0.36;
+    for (var k = 0; k < widget.outside.length; k++) {
+      final g = widget.outside[k];
+      final x = doorX - ps * 0.1 - k * gap;
+      if (x < all.left - 10) break;
+      final f = g.frac;
+      final mood = f > 0.6 ? 0 : (f > 0.3 ? 1 : 2);
+      // sốt ruột thì nhún chân, dậm chân
+      final fidget = f < 0.3 ? sin(t * 14 + k) * 1.5 : 0.0;
+      drawPerson(c, Offset(x + fidget, footY), ps, custLook('', g.seed), mood: mood);
+      queueHeads.add((Offset(x, footY - ps * 0.98), f));
+    }
     // khách ra về
     for (final l in _leavers) {
       final dt = t - l.t0 - l.dur;
@@ -1855,6 +1871,23 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       drawPerson(c, Offset(x, footY), ps, custLook(l.npc, l.seed), walking: true, phase: t * 12, facingLeft: true, mood: l.happy ? 0 : 2, armUp: l.happy && sin(t * 9) > 0);
     }
     c.restore();
+
+    // biểu cảm của khách chờ ngoài cửa (vẽ ngoài vùng cắt để không bị che)
+    for (final (p, f) in queueHeads) {
+      if (f < 0.3) {
+        _emoji(c, '💢', p + Offset(ps * 0.12, -ps * 0.05 + sin(t * 8) * 1.5), ps * 0.3);
+      } else if (f < 0.6) {
+        _emoji(c, '⏳', p + Offset(ps * 0.12, -ps * 0.02), ps * 0.22);
+      }
+    }
+    if (widget.outside.isNotEmpty) {
+      final n = widget.outside.length;
+      final angry = widget.outside.any((g) => g.frac < 0.3);
+      final label = _text('🚶 $n đang chờ', max(10.0, wallH * 0.13), color: Colors.white, bold: true);
+      final pill = Rect.fromCenter(center: Offset((win.left + dr.right) / 2, wallH + label.height * 0.9), width: label.width + 14, height: label.height + 6);
+      c.drawRRect(RRect.fromRectAndRadius(pill, Radius.circular(pill.height / 2)), Paint()..color = angry ? const Color(0xFFE53935) : const Color(0xCC37474F));
+      label.paint(c, pill.center - Offset(label.width / 2, label.height / 2));
+    }
 
     // ---- kính, song cửa, tay nắm ----
     final refl = Paint()..color = const Color(0x40FFFFFF);

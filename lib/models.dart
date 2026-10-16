@@ -48,6 +48,21 @@ class Cust {
   }
 }
 
+/// Khách đứng xếp hàng ngoài cửa khi quán đã kín bàn
+class OutsideGuest {
+  final double maxPat;
+  double pat;
+  final int seed; // để mỗi người một dáng vẻ khác nhau
+  OutsideGuest(this.maxPat, this.seed) : pat = maxPat;
+  double get frac => (pat / maxPat).clamp(0.0, 1.0).toDouble();
+  Map<String, dynamic> toJson() => {'mp': r2(maxPat), 'p': r2(pat), 's': seed};
+  factory OutsideGuest.fromJson(Map<String, dynamic> j) {
+    final g = OutsideGuest(_d(j['mp']), (j['s'] as num).toInt());
+    g.pat = _d(j['p']);
+    return g;
+  }
+}
+
 class TableS {
   Cust? c;
   bool dirty = false;
