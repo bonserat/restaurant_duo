@@ -14,6 +14,8 @@ import 'sound.dart';
 import 'town.dart';
 import 'ui.dart';
 import 'dishes.dart';
+import 'garden_store.dart';
+import 'garden_ui.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -24,6 +26,7 @@ Future<void> main() async {
     await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseAnonKey);
   }
   await Sound.init();
+  await GardenNotifier.init();
   runApp(MaterialApp(debugShowCheckedModeBanner: false, theme: appTheme(), home: const GamePage()));
 }
 
@@ -114,13 +117,42 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   int lvl(String id) => lv[id] ?? 0;
   /// 0 ở ngày đầu → 1 từ ngày 13: dùng để tăng độ khó từ từ
   /// Số khách tối đa đứng chờ ngoài cửa (ngày sau đông hơn)
-  int get maxOutside => 3 + (ease * 3).round();
+  int get maxOutside => 3 + (ease * 5).round(); // cấp 20: 8 người xếp hàng
 
   /// Khách ngoài cửa chờ được bao lâu (giây) trước khi bực mình bỏ đi
   double get outsidePat => 32 - 12 * ease + 3 * lvl('decor') + (petOn('parrot') ? 5 : 0);
 
-  double get ease => ((day - 1) / 12).clamp(0.0, 1.0).toDouble();
-  int goalFor(int d) => 80 + d * 50 + (d > 6 ? (d - 6) * 20 : 0);
+  static const maxLevel = 20; // từ ngày 20 trở đi là khó nhất
+  // ---- Độ khó: 'auto' = tăng dần theo ngày; easy / normal / hard = giữ cố định ----
+  String diff = 'auto';
+  String hostDiff = 'auto';
+  String get diffNow => remote ? hostDiff : diff;
+  static const diffModes = [
+    ('easy', '🌱', 'Dễ', 'Thong thả như ngày đầu'),
+    ('normal', '🙂', 'Vừa', 'Như khoảng ngày 8'),
+    ('hard', '🔥', 'Khó', 'Cấp 20: khách nườm nượp'),
+    ('auto', '📈', 'Tăng dần', 'Khó lên mỗi ngày, tới cấp 20'),
+  ];
+
+  /// Ngày dùng để tính độ khó (mục tiêu, tốc độ khách, độ kiên nhẫn…)
+  int effDay(int d) {
+    switch (diffNow) {
+      case 'easy':
+        return min(d, 2);
+      case 'normal':
+        return min(d, 8);
+      case 'hard':
+        return max(d, maxLevel);
+      default:
+        return d;
+    }
+  }
+
+  double get ease => ((effDay(day) - 1) / (maxLevel - 1)).clamp(0.0, 1.0).toDouble();
+  int goalFor(int d0) {
+    final d = min(effDay(d0), maxLevel); // mục tiêu cũng dừng tăng ở cấp 20
+    return 80 + d * 50 + (d > 6 ? (d - 6) * 20 : 0);
+  }
   int get goal => goalFor(day);
   double get burnTime => 12 - 5 * ease; // giây món chín chờ trước khi cháy
   String get styleNow => remote ? hostStyle : style;
@@ -156,7 +188,31 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     super.initState();
     recipes.addAll(venueById('cafe').recipes.where((r) => r.unlock == 0).map((r) => r.id));
     WidgetsBinding.instance.addObserver(this);
+    Garden.instance.addListener(_onGarden);
     load();
+  }
+
+  // Khu vườn chung đổi (người kia vừa chăm sóc / thu hoạch) → cập nhật thực đơn
+  int _gardenMenuN = -1;
+  void _onGarden() {
+    final n = Garden.instance.unlocked.length;
+    if (n != _gardenMenuN) {
+      _gardenMenuN = n;
+      if (mounted) setState(() {});
+    }
+  }
+
+  /// Món từ vườn đã mở (thu hoạch ít nhất 1 lần) – bán ở mọi quán
+  List<Recipe> get gardenMenu => gardenRecipes.where((r) => Garden.instance.unlocked.contains(r.id.substring(2))).toList();
+
+  /// Kệ nguyên liệu: của quán + nguyên liệu cho các món từ vườn
+  List<Ing> get shelfNow {
+    final list = [...venue.shelf];
+    final need = gardenMenu.expand((r) => r.ings).toSet();
+    for (final g in gardenIngs) {
+      if (need.contains(g.id) && !list.any((x) => x.id == g.id)) list.add(g);
+    }
+    return list;
   }
 
   @override
@@ -229,6 +285,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   /// Tải dữ liệu nhà hàng của [owner] (mỗi chủ quán một bản lưu riêng)
   Future<void> loadData() async {
+    Garden.instance.start(owner);
+    Garden.instance.who = owner;
     final p = await SharedPreferences.getInstance();
     var s = p.getString('save_$owner');
     if (s == null && !(p.getBool('migrated') ?? false)) {
@@ -252,6 +310,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       tablePos = parsePos(m['tablePos']);
       light = m['light'] ?? 'day';
       npcVisits = Map<String, int>.from(m['npc'] ?? {});
+      diff = m['diff'] ?? 'auto';
     }
     if (mounted) setState(() {});
   }
@@ -296,6 +355,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'tablePos': posJson(tablePos),
         'light': light,
         'npc': npcVisits,
+        'diff': diff,
       }),
     );
   }
@@ -317,6 +377,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'hr': myRole,
         'scr': screen,
         'day': day,
+        'df': diff,
         'money': money,
         'tl': r2(timeLeft),
         'ea': earned,
@@ -361,6 +422,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       hostDecor = (m['dc'] as num?)?.toInt() ?? 0;
       hostStyle = m['sy'] as String? ?? 'classic';
       hostCast = m['cn'] == true;
+      hostDiff = m['df'] as String? ?? 'auto';
       hostOwner = m['own'] as String? ?? '';
       hostLight = m['li'] as String? ?? 'day';
       hostPets = List<String>.from((m['pt'] as List?) ?? const []);
@@ -701,7 +763,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void spawnCustomer(int ti, double maxPat) {
-    final avail = venue.recipes.where((r) => recipes.contains(r.id)).toList();
+    final avail = [...venue.recipes.where((r) => recipes.contains(r.id)), ...gardenMenu];
     if (avail.isEmpty) return;
     NpcType? npc;
     if (day >= 2) {
@@ -756,7 +818,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             if (tables[i].c == null && !tables[i].dirty) i
         ];
         // càng về sau khách càng đông, có lúc đến cả nhóm 2 người
-        final arrivals = (day >= 4 && rnd.nextDouble() < 0.35 * ease) ? 2 : 1;
+        // cấp càng cao càng hay đến theo nhóm; gần cấp 20 có cả nhóm 3 người
+        final roll = rnd.nextDouble();
+        final arrivals = effDay(day) < 4 ? 1 : (ease > 0.7 && roll < 0.25 * ease ? 3 : (roll < 0.55 * ease ? 2 : 1));
         for (var k = 0; k < arrivals; k++) {
           if (free.isNotEmpty) {
             spawnCustomer(free.removeAt(rnd.nextInt(free.length)), maxPat);
@@ -766,7 +830,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             if (outsideQ.length == 1) say('🚶 Quán kín bàn rồi, khách đang xếp hàng ngoài cửa!');
           }
         }
-        spawnT = max(2.0, (5 + rnd.nextDouble() * 4) * (1.5 - 0.75 * ease) * venue.spawnMul); // khách đến thưa lúc đầu, dày dần
+        spawnT = max(1.6, (5 + rnd.nextDouble() * 4) * (1.5 - 0.9 * ease) * venue.spawnMul); // khách đến thưa lúc đầu, dày dần
       }
     }
 
@@ -1162,7 +1226,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
   }
 
-  int cutOf(String id) => venue.shelf.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '?', '?')).cut;
+  int cutOf(String id) => shelfNow.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '?', '?')).cut;
 
   /// Một nhát dao trên thớt
   void chop(Station s) {
@@ -1451,6 +1515,24 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       case 'online':
         content = onlineTab();
         break;
+      case 'garden':
+        content = GardenTab(
+          money: money,
+          pay: (c) {
+            final ok = pay(c);
+            if (ok) {
+              save();
+              setState(() {});
+            }
+            return ok;
+          },
+          earn: (m) {
+            setState(() => money += m);
+            save();
+          },
+          toast: snack,
+        );
+        break;
       default:
         content = mapTab();
     }
@@ -1466,6 +1548,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             ('map', '🗺️', 'Bản đồ'),
             ('shop', '🛍️', 'Cửa hàng'),
             ('home', '🏡', 'Quán tôi'),
+            ('garden', '🌻', 'Vườn'),
             ('online', '👥', 'Chơi đôi'),
           ],
         ),
@@ -1740,6 +1823,73 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     return Row(children: [opt(false), const SizedBox(width: 10), opt(true)]);
   }
 
+  Widget diffCards(VoidCallback refresh) {
+    Widget opt((String, String, String, String) m) {
+      final (id, emoji, name, sub) = m;
+      final sel = diff == id;
+      return GestureDetector(
+        onTap: () {
+          Sound.sfx('tap');
+          setState(() => diff = id);
+          save();
+          refresh();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+          decoration: BoxDecoration(
+            color: sel ? const Color(0xFFFFEDE6) : Pal.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: sel ? Pal.coral : Pal.line, width: sel ? 2.5 : 1),
+          ),
+          child: Row(children: [
+            Text(emoji, style: const TextStyle(fontSize: 24)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(name, style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+                Text(sub, style: const TextStyle(color: Pal.muted, fontSize: 11.5), maxLines: 2),
+              ]),
+            ),
+          ]),
+        ),
+      );
+    }
+
+    return Column(children: [
+      Row(children: [Expanded(child: opt(diffModes[0])), const SizedBox(width: 8), Expanded(child: opt(diffModes[1]))]),
+      const SizedBox(height: 8),
+      Row(children: [Expanded(child: opt(diffModes[2])), const SizedBox(width: 8), Expanded(child: opt(diffModes[3]))]),
+    ]);
+  }
+
+  void confirmResetDay(BuildContext ctx, VoidCallback refresh) {
+    if (mode != 'local' || screen == 'play') {
+      snack('Hãy rời phòng chơi đôi / kết thúc ngày trước khi đếm lại');
+      return;
+    }
+    showDialog(
+      context: ctx,
+      builder: (dc) => AlertDialog(
+        title: const Text('Đếm lại từ ngày 1?'),
+        content: Text('Quán quay về ngày 1 (đang ở ngày $day). Tiền, món, quán và đồ trang trí vẫn giữ nguyên.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dc), child: const Text('Thôi')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dc);
+              setState(() => day = 1);
+              save();
+              refresh();
+              snack('🔄 Đã quay về ngày 1');
+            },
+            child: const Text('Đồng ý'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void showSettings() {
     showGameSheet(context, title: 'Cài đặt', emoji: '⚙️', builder: (ctx, setS) {
       return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
@@ -1761,6 +1911,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             ),
           ]),
         ),
+        SectionTitle('Độ khó', sub: 'Ngày $day • đang chơi cấp ${min(effDay(day), maxLevel)}/$maxLevel • tiền và đồ đã mua vẫn giữ nguyên'),
+        diffCards(() => setS(() {})),
+        const SizedBox(height: 8),
+        SoftButton('Đếm lại từ ngày 1', emoji: '🔄', onTap: () => confirmResetDay(ctx, () => setS(() {}))),
         const SectionTitle('Ai nấu ăn?', sub: 'Áp dụng cho mọi chế độ chơi'),
         castCards(() => setS(() {})),
         const SectionTitle('Chủ quán của máy này'),
@@ -1847,6 +2001,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           for (final p in petTypes) '${p.emoji} ${p.name}: ${p.perk}.',
           'Giữ thú cưng từ 40♥ trở lên để chúng giúp quán. Chạm vào thú cưng trong lúc chơi để vuốt ve.',
         ], tint: Pal.berry),
+        _guideCard('🌻', 'Khu vườn chung', [
+          'Vườn dùng chung cho cả Nguyên và Ngọc Anh: ai chăm cũng được, cả hai đều thấy.',
+          'Gieo cây ở ruộng, nuôi vịt/bò trong chuồng, thả cá hồi/tôm hùm xuống hồ. Cây con lớn theo ngày thật.',
+          'Mỗi ngày: tưới cây 💧, cho ăn 🌽, dọn chuồng/thay nước 🧹. Bón phân/vitamin giúp lớn nhanh hơn.',
+          'Thời tiết đổi mỗi ngày: nắng gắt làm cây khát nhanh, mưa bão dễ gây úng và nhiễm lạnh.',
+          'Gặp sâu bệnh, cỏ dại, bệnh gia súc… phải vào xử lý thì mới lớn tiếp. Điện thoại sẽ báo khi vườn cần chăm.',
+          'Thu hoạch lần đầu mở món mới (Vịt quay, Bò Wagyu, Tôm hùm…) bán được ở mọi quán.',
+        ], tint: Pal.mint),
         _guideCard('👥', 'Chơi đôi', [
           '👥 Cả hai máy vào tab Chơi đôi, bấm "Vào phòng chờ" là tự gặp nhau. Người vào trước làm chủ phòng và bấm Bắt đầu.',
           '🤝 Hợp tác: 2 máy, một người nấu, một người phục vụ, chung một quán.',
@@ -2104,7 +2266,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       ]);
 
   // --- Đầu bếp ---
-  String ingEmoji(String id) => venue.shelf.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?')).emoji;
+  String ingEmoji(String id) => shelfNow.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?')).emoji;
 
   Widget kitchenScene({bool island = false}) => KitchenScene(
         stations: stations,
@@ -2194,7 +2356,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     Widget chip(String id) {
       final got = s.added.contains(id);
       final onBoard = s.board.contains(id);
-      final ing = venue.shelf.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?'));
+      final ing = shelfNow.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?'));
       return GestureDetector(
         onTap: got || s.cooking || s.done ? null : () => doIngredient(id, i),
         child: Container(
@@ -2334,7 +2496,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget _ingSlot(Station s, int si, String id) {
     final got = s.added.contains(id);
     final onBoard = s.board.contains(id);
-    final cut = venue.shelf.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?')).cut;
+    final cut = shelfNow.firstWhere((e) => e.id == id, orElse: () => const Ing('?', '❓', '?')).cut;
     return GestureDetector(
       onTap: got ? null : () => doIngredient(id, si),
       child: Container(
@@ -2557,7 +2719,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// Kệ nguyên liệu bằng gỗ: chạm để cho vào bếp đang chọn, hoặc kéo lên thả vào bếp bất kỳ
   Widget ingredientShelf({bool compact = false}) {
     final items = <Widget>[
-      for (final ing in venue.shelf) _shelfItem(ing.id, ing.emoji, ing.cut > 0 ? '${ing.name} 🔪' : ing.name, compact),
+      for (final ing in shelfNow) _shelfItem(ing.id, ing.emoji, ing.cut > 0 ? '${ing.name} 🔪' : ing.name, compact),
       _shelfItem('salt', seasonEmoji(venueId), seasonName(venueId), compact, special: true),
     ];
     return Container(
@@ -3027,6 +3189,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                               setState(() {});
                             }
                           }),
+                  ),
+                for (final r in gardenRecipes)
+                  ShopRow(
+                    emoji: r.emoji,
+                    leading: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(color: const Color(0xFFEAF7E4), borderRadius: BorderRadius.circular(18)),
+                      child: DishIcon(r.id, size: 60),
+                    ),
+                    title: r.name,
+                    tint: Pal.mint,
+                    sub: '🌻 Món từ vườn • bán ${r.price}💰 ở mọi quán',
+                    trailing: gardenMenu.contains(r) ? const Tag('✓ Đã có') : const Tag('🌻 Thu hoạch', color: Pal.gold),
                   ),
               ]),
               _list(note: 'Mua xong vào 🏡 Quán tôi → Bố trí để kéo thả. Mỗi món giúp khách chờ lâu hơn.', [

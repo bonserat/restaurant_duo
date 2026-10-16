@@ -97,6 +97,30 @@ void drawDish(Canvas c, String id, Offset p, double size, {double t = 0, bool bu
     case 'combo':
       _combo(c);
       break;
+    case 'r_melon':
+      _gMelon(c, t);
+      break;
+    case 'r_mango':
+      _gMango(c, t);
+      break;
+    case 'r_dragon':
+      _gDragon(c, t);
+      break;
+    case 'r_pine':
+      _gPine(c, t);
+      break;
+    case 'r_duck':
+      _gDuck(c, t);
+      break;
+    case 'r_beef':
+      _gBeef(c, t);
+      break;
+    case 'r_salmon':
+      _gSalmon(c, t);
+      break;
+    case 'r_lobster':
+      _gLobster(c, t);
+      break;
     default:
       _plate(c);
   }
@@ -843,6 +867,355 @@ void _combo(Canvas c) {
   c.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTRB(-46, 16, 46, 26), const Radius.circular(6)), _p(const Color(0x33FFFFFF)));
   _fries(c, 28, -6, 0.62);
   _burger(c, -14, -2, 0.62);
+}
+
+// ------------------------------------------------------------------ món từ khu vườn
+void _melonWedge(Canvas c, double x, double y, double s, double rot) {
+  c.save();
+  c.translate(x, y);
+  c.rotate(rot);
+  final rind = Path()
+    ..moveTo(-s * 0.5, 0)
+    ..arcToPoint(Offset(s * 0.5, 0), radius: Radius.circular(s * 0.5), clockwise: false)
+    ..close();
+  c.drawPath(rind, _p(const Color(0xFF2E7D32)));
+  final white = Path()
+    ..moveTo(-s * 0.44, 0)
+    ..arcToPoint(Offset(s * 0.44, 0), radius: Radius.circular(s * 0.44), clockwise: false)
+    ..close();
+  c.drawPath(white, _p(const Color(0xFFE8F5C8)));
+  final red = Path()
+    ..moveTo(-s * 0.4, 0)
+    ..arcToPoint(Offset(s * 0.4, 0), radius: Radius.circular(s * 0.4), clockwise: false)
+    ..close();
+  c.drawPath(red, _grad(Rect.fromLTRB(-s * 0.4, 0, s * 0.4, s * 0.4), const [Color(0xFFFF5252), Color(0xFFE53935)]));
+  for (var k = 0; k < 5; k++) {
+    final a = 0.5 + k * 0.5;
+    c.drawOval(Rect.fromCenter(center: Offset(cos(a) * s * 0.22, sin(a) * s * 0.2), width: s * 0.05, height: s * 0.08), _p(const Color(0xFF212121)));
+  }
+  c.restore();
+}
+
+void _gMelon(Canvas c, double t) {
+  _shadow(c, 40, 56);
+  final glass = _tallGlass(-26, 38, 50, 40);
+  c.save();
+  c.clipPath(glass);
+  c.drawRect(const Rect.fromLTRB(-30, -14, 30, 40), _grad(const Rect.fromLTRB(-30, -14, 30, 40), const [Color(0xFFFF6F6F), Color(0xFFD32F2F)]));
+  c.drawRect(const Rect.fromLTRB(-30, -16, 30, -12), _p(const Color(0x66FFCDD2)));
+  c.restore();
+  _ice(c, -10, -6, 13, 0.3);
+  _ice(c, 8, 2, 12, -0.4);
+  _ice(c, -2, 14, 11, 0.7);
+  c.drawPath(glass, _p(const Color(0x22FFFFFF)));
+  c.drawPath(glass, _st(const Color(0xAAFFFFFF), 1.6));
+  // miếng dưa hấu cài miệng ly
+  _melonWedge(c, -16, -26, 34, 3.6);
+  // ống hút
+  c.save();
+  c.translate(12, -30);
+  c.rotate(0.3);
+  c.drawRect(const Rect.fromLTWH(-3, -22, 6, 34), _p(const Color(0xFF66BB6A)));
+  c.restore();
+  _glassShine(c, -24, 34, 46);
+}
+
+void _gMango(Canvas c, double t) {
+  _shadow(c, 42, 50);
+  final glass = Path()
+    ..moveTo(-24, -18)
+    ..lineTo(24, -18)
+    ..quadraticBezierTo(22, 30, 10, 38)
+    ..lineTo(-10, 38)
+    ..quadraticBezierTo(-22, 30, -24, -18)
+    ..close();
+  c.drawPath(glass, _grad(const Rect.fromLTRB(-24, -18, 24, 38), const [Color(0xFFFFD54F), Color(0xFFFF9800)]));
+  c.drawLine(const Offset(-20, 2), const Offset(20, 2), _st(const Color(0x55FFF59D), 3));
+  c.drawLine(const Offset(0, 38), const Offset(0, 44), _st(const Color(0xCCFFFFFF), 4));
+  c.drawOval(Rect.fromCenter(center: const Offset(0, 45), width: 30, height: 6), _p(const Color(0xCCFFFFFF)));
+  // xoài cắt hạt lựu trên mặt
+  for (final o in const [Offset(-12, -22), Offset(0, -25), Offset(12, -22), Offset(-6, -30), Offset(7, -31)]) {
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: o, width: 11, height: 10), const Radius.circular(3)), _p(const Color(0xFFFFB300)));
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: o - const Offset(1, 1.5), width: 6, height: 4), const Radius.circular(2)), _p(const Color(0x88FFF59D)));
+  }
+  // lá bạc hà
+  c.drawOval(Rect.fromCenter(center: const Offset(-2, -38), width: 12, height: 6), _p(const Color(0xFF43A047)));
+  c.drawOval(Rect.fromCenter(center: const Offset(6, -37), width: 10, height: 5), _p(const Color(0xFF66BB6A)));
+  c.save();
+  c.translate(16, -28);
+  c.rotate(0.35);
+  c.drawRect(const Rect.fromLTWH(-3, -24, 6, 30), _p(Colors.white));
+  for (var k = 0; k < 4; k++) {
+    c.drawRect(Rect.fromLTWH(-3, -22 + k * 7.0, 6, 3), _p(const Color(0xFFFF9800)));
+  }
+  c.restore();
+  _glassShine(c, -18, 30, 44);
+}
+
+void _dragonCube(Canvas c, double x, double y, double s) {
+  c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(x, y), width: s, height: s * 0.85), Radius.circular(s * 0.25)), _p(const Color(0xFFD81B60)));
+  c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(x - s * 0.1, y - s * 0.12), width: s * 0.5, height: s * 0.3), Radius.circular(s * 0.12)), _p(const Color(0x55FF80AB)));
+  for (var k = 0; k < 4; k++) {
+    c.drawCircle(Offset(x + (k % 2 - 0.5) * s * 0.4, y + (k ~/ 2 - 0.5) * s * 0.35), s * 0.06, _p(const Color(0xFF212121)));
+  }
+}
+
+void _gDragon(Canvas c, double t) {
+  _shadow(c, 34, 92);
+  // nửa quả thanh long phía sau
+  c.save();
+  c.translate(26, -6);
+  c.rotate(0.35);
+  c.drawOval(Rect.fromCenter(center: Offset.zero, width: 40, height: 30), _p(const Color(0xFFEC407A)));
+  for (var k = 0; k < 5; k++) {
+    final a = -1.2 + k * 0.6;
+    c.drawPath(
+      Path()
+        ..moveTo(cos(a) * 18, sin(a) * 13)
+        ..lineTo(cos(a) * 26, sin(a) * 18 - 4)
+        ..lineTo(cos(a + 0.25) * 18, sin(a + 0.25) * 13)
+        ..close(),
+      _p(const Color(0xFF8BC34A)),
+    );
+  }
+  c.drawOval(Rect.fromCenter(center: const Offset(-2, 0), width: 32, height: 22), _p(const Color(0xFFC2185B)));
+  for (var k = 0; k < 10; k++) {
+    c.drawCircle(Offset(-12 + (k % 5) * 5.0, -4 + (k ~/ 5) * 7.0), 1.1, _p(const Color(0xFF212121)));
+  }
+  c.restore();
+  // bát sữa chua
+  final bowl = Path()
+    ..moveTo(-40, 4)
+    ..quadraticBezierTo(-36, 34, 0, 36)
+    ..quadraticBezierTo(36, 34, 40, 4)
+    ..close();
+  c.drawPath(bowl, _grad(const Rect.fromLTRB(-40, 4, 40, 36), const [Color(0xFFE3F2FD), Color(0xFF90CAF9)]));
+  c.drawOval(Rect.fromCenter(center: const Offset(0, 4), width: 80, height: 18), _p(const Color(0xFFBBDEFB)));
+  c.drawOval(Rect.fromCenter(center: const Offset(0, 3), width: 72, height: 14), _p(const Color(0xFFFFFDF5)));
+  _dragonCube(c, -18, -2, 13);
+  _dragonCube(c, -3, -6, 14);
+  _dragonCube(c, 13, -1, 13);
+  _dragonCube(c, 4, 4, 12);
+  c.drawCircle(const Offset(-26, 4), 4, _p(const Color(0xFF7E57C2)));
+  c.drawCircle(const Offset(24, 6), 4, _p(const Color(0xFF7E57C2)));
+  c.drawOval(Rect.fromCenter(center: const Offset(-6, -14), width: 10, height: 5), _p(const Color(0xFF43A047)));
+}
+
+void _gPine(Canvas c, double t) {
+  _plate(c, y: 24, w: 100);
+  // lá dứa
+  for (var k = 0; k < 5; k++) {
+    final a = -0.9 + k * 0.32;
+    c.save();
+    c.translate(36, -2);
+    c.rotate(a);
+    c.drawPath(
+      Path()
+        ..moveTo(0, -4)
+        ..quadraticBezierTo(16, -6, 30, 0)
+        ..quadraticBezierTo(16, 4, 0, 4)
+        ..close(),
+      _p(k % 2 == 0 ? const Color(0xFF388E3C) : const Color(0xFF66BB6A)),
+    );
+    c.restore();
+  }
+  // vỏ dứa bổ đôi làm thuyền
+  final shell = Path()
+    ..moveTo(-44, 2)
+    ..quadraticBezierTo(-40, 26, 0, 28)
+    ..quadraticBezierTo(38, 26, 42, 2)
+    ..close();
+  c.drawPath(shell, _grad(const Rect.fromLTRB(-44, 2, 42, 28), const [Color(0xFFE0A030), Color(0xFF9C6A1E)]));
+  c.save();
+  c.clipPath(shell);
+  for (var k = 0; k < 10; k++) {
+    final x = -44 + k * 10.0;
+    c.drawLine(Offset(x, 2), Offset(x + 14, 30), _st(const Color(0x66704010), 1.5));
+    c.drawLine(Offset(x + 14, 2), Offset(x, 30), _st(const Color(0x66704010), 1.5));
+  }
+  c.restore();
+  c.drawOval(Rect.fromCenter(center: const Offset(-1, 2), width: 86, height: 12), _p(const Color(0xFFFFE082)));
+  // cơm chiên vàng vun đầy
+  final mound = Path()
+    ..moveTo(-38, 4)
+    ..quadraticBezierTo(-30, -24, 0, -24)
+    ..quadraticBezierTo(30, -24, 36, 4)
+    ..close();
+  c.drawPath(mound, _grad(const Rect.fromLTRB(-38, -24, 36, 4), const [Color(0xFFFFE57F), Color(0xFFF2B33D)]));
+  final rr = Random(41);
+  for (var k = 0; k < 34; k++) {
+    final x = -32 + rr.nextDouble() * 62;
+    final y = -20 + rr.nextDouble() * 22 + (x.abs() / 36) * 8;
+    c.drawOval(Rect.fromCenter(center: Offset(x, y), width: 4, height: 2.6), _p(const Color(0xFFFFF8DC)));
+  }
+  // miếng dứa, tôm, đậu
+  for (var k = 0; k < 7; k++) {
+    final x = -26 + rr.nextDouble() * 50;
+    final y = -16 + rr.nextDouble() * 16;
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(x, y), width: 7, height: 6), const Radius.circular(2)), _p(const Color(0xFFFFCA28)));
+  }
+  for (var k = 0; k < 6; k++) {
+    c.drawCircle(Offset(-24 + rr.nextDouble() * 46, -14 + rr.nextDouble() * 14), 2.6, _p(const Color(0xFF7CB342)));
+  }
+  for (final o in const [Offset(-12, -18), Offset(10, -14)]) {
+    c.drawArc(Rect.fromCenter(center: o, width: 14, height: 12), 0.3, 4.2, false, _st(const Color(0xFFFF7043), 4));
+  }
+  _steam(c, t, 0, -26, n: 2, h: 18);
+}
+
+void _gDuck(Canvas c, double t) {
+  _plate(c, y: 20, w: 100);
+  // lá xà lách lót đĩa
+  for (var k = 0; k < 3; k++) {
+    c.drawOval(Rect.fromCenter(center: Offset(-26 + k * 26.0, 16), width: 34, height: 12), _p(const Color(0xFF8BC34A)));
+  }
+  // thân vịt quay bóng mật ong
+  final body = Rect.fromCenter(center: const Offset(-6, -2), width: 66, height: 40);
+  c.drawOval(body, _grad(body, const [Color(0xFFD9692B), Color(0xFF8D3A14)]));
+  c.drawOval(Rect.fromCenter(center: const Offset(-14, -12), width: 30, height: 9), _p(const Color(0x66FFD180)));
+  // đùi vịt
+  c.save();
+  c.translate(24, 6);
+  c.rotate(-0.5);
+  c.drawOval(Rect.fromCenter(center: Offset.zero, width: 26, height: 18), _grad(const Rect.fromLTRB(-13, -9, 13, 9), const [Color(0xFFCC5A20), Color(0xFF7A3010)]));
+  c.drawRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(10, -3, 12, 6), const Radius.circular(3)), _p(const Color(0xFFFFF3E0)));
+  c.drawCircle(const Offset(23, -3), 3.5, _p(const Color(0xFFFFF3E0)));
+  c.drawCircle(const Offset(23, 3), 3.5, _p(const Color(0xFFFFF3E0)));
+  c.restore();
+  // vài lát thịt đã chặt
+  for (var k = 0; k < 3; k++) {
+    final o = Offset(-36 + k * 11.0, 14);
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: o, width: 10, height: 8), const Radius.circular(2)), _p(const Color(0xFFB04A1C)));
+    c.drawRect(Rect.fromCenter(center: o + const Offset(0, 2), width: 8, height: 3), _p(const Color(0xFFFFE0B2)));
+  }
+  // hành lá + ớt
+  c.drawLine(const Offset(-20, -22), const Offset(-8, -26), _st(const Color(0xFF43A047), 2.5));
+  c.drawLine(const Offset(-14, -20), const Offset(-2, -25), _st(const Color(0xFF66BB6A), 2.5));
+  c.drawCircle(const Offset(6, -20), 2.5, _p(const Color(0xFFE53935)));
+  _steam(c, t, -6, -26, n: 2, h: 18);
+}
+
+void _gBeef(Canvas c, double t) {
+  // thớt gỗ + chảo gang nóng
+  final board = RRect.fromRectAndRadius(const Rect.fromLTRB(-48, -6, 48, 36), const Radius.circular(10));
+  c.drawRRect(board.shift(const Offset(0, 4)), _p(const Color(0x30000000)));
+  c.drawRRect(board, _grad(board.outerRect, const [Color(0xFFC08A55), Color(0xFF8D5A2B)]));
+  final pan = Rect.fromCenter(center: const Offset(0, 10), width: 84, height: 40);
+  c.drawOval(pan, _p(const Color(0xFF263238)));
+  c.drawOval(pan.deflate(4), _p(const Color(0xFF37474F)));
+  // miếng bò bít tết vân mỡ
+  final steak = Path()
+    ..moveTo(-30, 4)
+    ..quadraticBezierTo(-32, -14, -6, -14)
+    ..quadraticBezierTo(22, -16, 28, -2)
+    ..quadraticBezierTo(30, 16, 4, 18)
+    ..quadraticBezierTo(-26, 20, -30, 4)
+    ..close();
+  c.drawPath(steak, _grad(const Rect.fromLTRB(-32, -16, 30, 20), const [Color(0xFF8D4A2B), Color(0xFF5D2A16)]));
+  c.save();
+  c.clipPath(steak);
+  for (var k = 0; k < 5; k++) {
+    c.drawLine(Offset(-30 + k * 14.0, -16), Offset(-40 + k * 14.0, 20), _st(const Color(0xFF3E1A0C), 3));
+  }
+  c.drawLine(const Offset(-20, -2), const Offset(12, 6), _st(const Color(0x88FFE0C8), 1.5));
+  c.drawLine(const Offset(-10, 8), const Offset(16, -6), _st(const Color(0x66FFE0C8), 1.2));
+  c.restore();
+  // bơ đang tan, tỏi, hương thảo
+  c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: const Offset(-4, -6), width: 12, height: 8), const Radius.circular(2)), _p(const Color(0xFFFFE082)));
+  c.drawOval(Rect.fromCenter(center: const Offset(-4, -2), width: 18, height: 5), _p(const Color(0x88FFD54F)));
+  for (final o in const [Offset(-30, 18), Offset(30, 16), Offset(34, 6)]) {
+    c.drawOval(Rect.fromCenter(center: o, width: 9, height: 7), _p(const Color(0xFFFFF8E1)));
+    c.drawLine(o - const Offset(0, 3), o + const Offset(0, 3), _st(const Color(0x33000000), 1));
+  }
+  c.drawLine(const Offset(14, 14), const Offset(32, -8), _st(const Color(0xFF2E7D32), 2));
+  for (var k = 0; k < 6; k++) {
+    final x = 16 + k * 3.0;
+    final y = 12 - k * 3.6;
+    c.drawLine(Offset(x, y), Offset(x - 4, y - 3), _st(const Color(0xFF388E3C), 1.6));
+    c.drawLine(Offset(x, y), Offset(x + 4, y + 1), _st(const Color(0xFF388E3C), 1.6));
+  }
+  _steam(c, t, -2, -18, n: 3, h: 22);
+}
+
+void _gSalmon(Canvas c, double t) {
+  _plate(c, y: 20, w: 100);
+  // măng tây
+  for (var k = 0; k < 4; k++) {
+    final y = 8 + k * 4.0;
+    c.drawLine(Offset(-40, y), Offset(-6, y - 6), _st(const Color(0xFF558B2F), 4));
+    c.drawOval(Rect.fromCenter(center: Offset(-5, y - 6), width: 7, height: 5), _p(const Color(0xFF33691E)));
+  }
+  // miếng cá hồi áp chảo
+  final fillet = RRect.fromRectAndRadius(const Rect.fromLTRB(-20, -16, 30, 12), const Radius.circular(10));
+  c.drawRRect(fillet, _grad(fillet.outerRect, const [Color(0xFFFF8A65), Color(0xFFF4511E)]));
+  c.save();
+  c.clipRRect(fillet);
+  for (var k = 0; k < 6; k++) {
+    final x = -16 + k * 9.0;
+    c.drawArc(Rect.fromCenter(center: Offset(x, -2), width: 14, height: 34), -0.8, 1.6, false, _st(const Color(0xCCFFE0D0), 1.8));
+  }
+  c.drawRect(const Rect.fromLTRB(-20, -16, 30, -10), _p(const Color(0x66A0400F)));
+  c.restore();
+  c.drawRRect(fillet, _st(const Color(0x33000000), 1));
+  // lát chanh
+  c.save();
+  c.translate(30, 14);
+  c.drawCircle(Offset.zero, 9, _p(const Color(0xFFFFEB3B)));
+  c.drawCircle(Offset.zero, 7, _p(const Color(0xFFFFF59D)));
+  for (var k = 0; k < 6; k++) {
+    final a = k * pi / 3;
+    c.drawLine(Offset.zero, Offset(cos(a) * 7, sin(a) * 7), _st(const Color(0xFFFFEB3B), 1));
+  }
+  c.restore();
+  // rau thơm
+  c.drawOval(Rect.fromCenter(center: const Offset(4, -18), width: 10, height: 5), _p(const Color(0xFF43A047)));
+  c.drawOval(Rect.fromCenter(center: const Offset(10, -20), width: 8, height: 4), _p(const Color(0xFF66BB6A)));
+  _steam(c, t, 6, -22, n: 2, h: 18);
+}
+
+void _gLobster(Canvas c, double t) {
+  _shadow(c, 30, 96);
+  final plate = Rect.fromCenter(center: const Offset(0, 22), width: 104, height: 34);
+  c.drawOval(plate, _p(Colors.white));
+  c.drawOval(plate, _st(const Color(0x22000000), 1.2));
+  // càng tôm
+  for (final s in const [-1.0, 1.0]) {
+    c.save();
+    c.translate(s * 24, 4);
+    c.rotate(s * 1.0);
+    c.drawOval(Rect.fromCenter(center: const Offset(0, -6), width: 16, height: 24), _p(const Color(0xFFD84315)));
+    c.drawLine(const Offset(0, -16), Offset(s * 4, -26), _st(const Color(0xFFBF360C), 4));
+    c.drawLine(const Offset(0, -16), Offset(-s * 3, -25), _st(const Color(0xFFBF360C), 3.5));
+    c.restore();
+  }
+  // thân tôm hùm bổ đôi, phủ phô mai
+  for (final s in const [-1.0, 1.0]) {
+    final half = Path()
+      ..moveTo(s * 2, -14)
+      ..quadraticBezierTo(s * 22, -12, s * 20, 10)
+      ..lineTo(s * 12, 30)
+      ..lineTo(s * 2, 30)
+      ..close();
+    c.drawPath(half, _grad(const Rect.fromLTRB(-22, -14, 22, 30), const [Color(0xFFE64A19), Color(0xFFBF360C)]));
+    final cheese = Path()
+      ..moveTo(s * 4, -10)
+      ..quadraticBezierTo(s * 17, -8, s * 16, 8)
+      ..lineTo(s * 10, 24)
+      ..lineTo(s * 4, 24)
+      ..close();
+    c.drawPath(cheese, _grad(const Rect.fromLTRB(-17, -10, 17, 24), const [Color(0xFFFFE082), Color(0xFFFFB300)]));
+    for (var k = 0; k < 4; k++) {
+      c.drawCircle(Offset(s * (7 + (k % 2) * 4.0), -4 + k * 7.0), 2, _p(const Color(0xAA8D5A1E)));
+    }
+  }
+  // đuôi
+  for (var k = 0; k < 3; k++) {
+    c.drawOval(Rect.fromCenter(center: Offset((k - 1) * 7.0, 34), width: 9, height: 7), _p(const Color(0xFFD84315)));
+  }
+  // rau mùi tây
+  c.drawCircle(const Offset(-2, -16), 3, _p(const Color(0xFF43A047)));
+  c.drawCircle(const Offset(3, -18), 2.5, _p(const Color(0xFF66BB6A)));
+  _steam(c, t, 0, -22, n: 2, h: 18);
 }
 
 // ------------------------------------------------------------------ widget

@@ -114,7 +114,96 @@ const venues = [
 
 Venue venueById(String id) => venues.firstWhere((v) => v.id == id);
 
-Recipe recipeById(String id) => venues.expand((v) => v.recipes).firstWhere((r) => r.id == id);
+Recipe recipeById(String id) => [...venues.expand((v) => v.recipes), ...gardenRecipes].firstWhere((r) => r.id == id);
+
+// =====================================================================
+//  KHU VƯỜN CHUNG – cây trái, gia súc, cá. Thu hoạch lần đầu sẽ mở món mới
+//  (món từ vườn bán được ở mọi quán).
+// =====================================================================
+class Species {
+  final String id, name, emoji, kind; // kind: plant | animal | fish
+  final String baby; // hình lúc còn nhỏ
+  final int cost, days, reward; // giá giống, số ngày chăm tốt để lớn, tiền thưởng khi thu hoạch
+  const Species(this.id, this.name, this.emoji, this.kind, this.baby, this.cost, this.days, this.reward);
+  String get recipeId => 'r_$id';
+  double get hours => days * 24.0;
+}
+
+const species = [
+  Species('melon', 'Dưa hấu', '🍉', 'plant', '🌱', 40, 1, 60),
+  Species('mango', 'Xoài cát', '🥭', 'plant', '🌱', 70, 2, 110),
+  Species('dragon', 'Thanh long', '🐉', 'plant', '🌵', 80, 2, 120),
+  Species('pine', 'Dứa mật', '🍍', 'plant', '🌱', 90, 3, 150),
+  Species('duck', 'Vịt bầu', '🦆', 'animal', '🐣', 100, 2, 170),
+  Species('beef', 'Bò Wagyu', '🐄', 'animal', '🐮', 220, 4, 320),
+  Species('salmon', 'Cá hồi', '🐟', 'fish', '🐠', 120, 2, 190),
+  Species('lobster', 'Tôm hùm', '🦞', 'fish', '🦐', 200, 3, 300),
+];
+
+Species speciesById(String id) => species.firstWhere((s) => s.id == id, orElse: () => species.first);
+
+/// Nguyên liệu của món từ vườn (các nguyên liệu phụ dùng chung id với kệ các quán)
+const gardenIngs = [
+  Ing('p_melon', '🍉', 'Dưa hấu', 2),
+  Ing('p_mango', '🥭', 'Xoài', 2),
+  Ing('p_dragon', '🐉', 'Thanh long', 2),
+  Ing('p_pine', '🍍', 'Dứa', 2),
+  Ing('p_duck', '🦆', 'Thịt vịt', 3),
+  Ing('p_beef', '🥩', 'Bò Wagyu', 3),
+  Ing('p_salmon', '🐟', 'Cá hồi', 2),
+  Ing('p_lobster', '🦞', 'Tôm hùm', 2),
+  Ing('ice', '🧊', 'Đá'),
+  Ing('yog', '🥛', 'Sữa chua'),
+  Ing('rice', '🍚', 'Cơm'),
+  Ing('honey', '🍯', 'Mật ong'),
+  Ing('garlic', '🧄', 'Tỏi', 1),
+  Ing('butter', '🧈', 'Bơ'),
+  Ing('cheese', '🧀', 'Phô mai', 1),
+];
+
+const gardenRecipes = [
+  Recipe('r_melon', 'Nước ép dưa hấu', '🍉', ['p_melon', 'ice'], 4, 70, 0),
+  Recipe('r_mango', 'Sinh tố xoài', '🥭', ['p_mango', 'yog', 'ice'], 6, 95, 0),
+  Recipe('r_dragon', 'Thanh long sữa chua', '🐉', ['p_dragon', 'yog'], 5, 90, 0),
+  Recipe('r_pine', 'Cơm chiên dứa', '🍍', ['p_pine', 'rice'], 7, 120, 0),
+  Recipe('r_duck', 'Vịt quay', '🦆', ['p_duck', 'honey', 'garlic'], 9, 160, 0),
+  Recipe('r_beef', 'Bò bít tết Wagyu', '🥩', ['p_beef', 'butter', 'garlic'], 9, 220, 0),
+  Recipe('r_salmon', 'Cá hồi nướng', '🐟', ['p_salmon', 'butter'], 7, 150, 0),
+  Recipe('r_lobster', 'Tôm hùm phô mai', '🦞', ['p_lobster', 'cheese', 'butter'], 9, 240, 0),
+];
+
+/// Sự cố trong vườn: mỗi loại cần một cách xử lý riêng
+class GProblem {
+  final String id, emoji, name, desc, fix, fixEmoji;
+  const GProblem(this.id, this.emoji, this.name, this.desc, this.fix, this.fixEmoji);
+}
+
+const gProblems = [
+  GProblem('pest', '🐛', 'Sâu bệnh', 'Sâu đang ăn lá, cây ngừng lớn', 'Phun thuốc', '🧴'),
+  GProblem('weed', '🌾', 'Cỏ dại', 'Cỏ mọc tranh hết chất dinh dưỡng', 'Nhổ cỏ', '🧤'),
+  GProblem('flood', '💦', 'Úng nước', 'Mưa nhiều làm rễ bị úng', 'Khơi rãnh thoát nước', '⛏️'),
+  GProblem('burn', '🥵', 'Cháy lá', 'Nắng gắt làm cháy lá', 'Che lưới', '⛱️'),
+  GProblem('sick', '🤒', 'Bị bệnh', 'Con vật mệt mỏi, bỏ ăn', 'Tiêm thuốc thú y', '💉'),
+  GProblem('flies', '🪰', 'Ruồi muỗi', 'Ruồi muỗi bu đầy chuồng', 'Phun xịt diệt muỗi', '🧯'),
+  GProblem('cold', '🥶', 'Nhiễm lạnh', 'Mưa bão làm con vật bị lạnh', 'Sưởi ấm', '🔥'),
+  GProblem('algae', '🟢', 'Tảo xanh', 'Tảo phủ kín mặt hồ', 'Vớt tảo', '🥅'),
+  GProblem('oxygen', '🫧', 'Thiếu oxy', 'Trời nóng, nước thiếu oxy', 'Bật máy sục khí', '⚙️'),
+];
+
+GProblem gProblemById(String id) => gProblems.firstWhere((p) => p.id == id, orElse: () => gProblems.first);
+
+/// Thời tiết mỗi ngày (giống nhau trên cả 2 máy)
+class GWeather {
+  final String id, emoji, name, effect;
+  const GWeather(this.id, this.emoji, this.name, this.effect);
+}
+
+const gWeathers = [
+  GWeather('sun', '☀️', 'Nắng đẹp', 'Cây uống nước vừa phải, mọi thứ lớn đều'),
+  GWeather('hot', '🥵', 'Nắng gắt', 'Cây khát nhanh, dễ cháy lá; hồ cá dễ thiếu oxy'),
+  GWeather('rain', '🌧️', 'Mưa', 'Trời tưới hộ cây, nhưng ruộng dễ bị úng'),
+  GWeather('storm', '⛈️', 'Mưa bão', 'Cây chậm lớn, gia súc dễ nhiễm lạnh, ruộng dễ úng'),
+];
 
 // =====================================================================
 //  GIA VỊ – tên theo loại quán
