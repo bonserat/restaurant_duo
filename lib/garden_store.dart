@@ -57,7 +57,6 @@ class GardenNotifier {
             android: AndroidNotificationDetails('garden', 'Khu vườn', importance: Importance.high, priority: Priority.high),
           ),
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
         );
       }
     } catch (e) {
