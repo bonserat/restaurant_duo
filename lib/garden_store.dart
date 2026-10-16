@@ -1,69 +1,16 @@
-// Lưu & đồng bộ khu vườn chung qua bảng Supabase `garden_events`,
-// và hẹn giờ thông báo trên điện thoại khi vườn cần chăm sóc.
+// Lưu & đồng bộ khu vườn chung qua bảng Supabase `garden_events`.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
-import 'package:timezone/timezone.dart' as tz;
 import 'config.dart';
 import 'data.dart';
 import 'garden_engine.dart';
 
 const kGardenId = 'nguyen-ngocanh';
-const kGardenTitle = '🌻 Vườn của Nguyên & Ngọc Anh';
-
-class GardenNotifier {
-  static final _plugin = FlutterLocalNotificationsPlugin();
-  static bool _ready = false;
-
-  static Future<void> init() async {
-    try {
-      tzdata.initializeTimeZones();
-      const ios = DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
-      );
-      await _plugin.initialize(const InitializationSettings(
-        iOS: ios,
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ));
-      _ready = true;
-    } catch (e) {
-      debugPrint('notif init: $e');
-    }
-  }
-
-  /// Huỷ hết lịch cũ và hẹn lại danh sách mới (thời điểm, nội dung)
-  static Future<void> scheduleAll(List<(DateTime, String)> list) async {
-    if (!_ready) return;
-    try {
-      await _plugin.cancelAll();
-      var id = 100;
-      for (final (when, body) in list) {
-        if (when.isBefore(DateTime.now().add(const Duration(seconds: 30)))) continue;
-        await _plugin.zonedSchedule(
-          id++,
-          kGardenTitle,
-          body,
-          tz.TZDateTime.from(when.toUtc(), tz.UTC),
-          const NotificationDetails(
-            iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true, presentBadge: false),
-            android: AndroidNotificationDetails('garden', 'Khu vườn', importance: Importance.high, priority: Priority.high),
-          ),
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        );
-      }
-    } catch (e) {
-      debugPrint('notif schedule: $e');
-    }
-  }
-}
 
 class Garden extends ChangeNotifier {
   static final instance = Garden();
@@ -190,48 +137,7 @@ class Garden extends ChangeNotifier {
     final now = DateTime.now().millisecondsSinceEpoch;
     state = simulate(events, now);
     notifyListeners();
-    if (schedule) {
-      _scheduled = true;
-      _scheduleNotifs(now);
-    }
-  }
-
-  /// Xem trước 2 ngày tới: lúc nào cây khát, vật đói, sự cố, tới ngày thu hoạch…
-  /// rồi hẹn thông báo. Cả 2 máy cùng tính ra một lịch nên cả 2 người đều được báo.
-  void _scheduleNotifs(int now) {
-    final future = simulate(events, now + 48 * kHour, watchFrom: now);
-    final raw = <(DateTime, String)>[];
-    for (final a in future.alerts) {
-      raw.add((_awake(DateTime.fromMillisecondsSinceEpoch(a.at)), a.text));
-    }
-    // dự báo thời tiết xấu lúc 7 giờ sáng
-    for (var dd = 1; dd <= 2; dd++) {
-      final day = DateTime.now().add(Duration(days: dd));
-      final at7 = DateTime(day.year, day.month, day.day, 7);
-      final w = weatherAt(at7.millisecondsSinceEpoch);
-      if ((w.id == 'storm' || w.id == 'hot') && state.items.isNotEmpty) {
-        raw.add((at7, '${w.emoji} Hôm nay ${w.name.toLowerCase()}: ${w.effect.toLowerCase()}. Ghé vườn xem nhé!'));
-      }
-    }
-    raw.sort((a, b) => a.$1.compareTo(b.$1));
-    // gộp các thông báo gần nhau (trong 45 phút) thành 1
-    final out = <(DateTime, String)>[];
-    for (final r in raw) {
-      if (out.isNotEmpty && r.$1.difference(out.last.$1).inMinutes < 45) {
-        final last = out.removeLast();
-        out.add((last.$1, '${last.$2}\n${r.$2}'));
-      } else {
-        out.add(r);
-      }
-    }
-    GardenNotifier.scheduleAll(out.take(30).toList());
-  }
-
-  /// Không báo lúc nửa đêm: dời sang 7 giờ sáng
-  DateTime _awake(DateTime d) {
-    if (d.hour >= 22) return DateTime(d.year, d.month, d.day + 1, 7);
-    if (d.hour < 7) return DateTime(d.year, d.month, d.day, 7);
-    return d;
+    if (schedule) _scheduled = true;
   }
 
   Future<void> _loadCache() async {

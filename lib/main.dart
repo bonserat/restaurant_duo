@@ -26,7 +26,6 @@ Future<void> main() async {
     await Supabase.initialize(url: kSupabaseUrl, anonKey: kSupabaseAnonKey);
   }
   await Sound.init();
-  await GardenNotifier.init();
   runApp(MaterialApp(debugShowCheckedModeBanner: false, theme: appTheme(), home: const GamePage()));
 }
 
@@ -194,12 +193,24 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   // Khu vườn chung đổi (người kia vừa chăm sóc / thu hoạch) → cập nhật thực đơn
   int _gardenMenuN = -1;
+  int _gardenCare = 0;
   void _onGarden() {
     final n = Garden.instance.unlocked.length;
+    final care = Garden.instance.state.needCare;
+    var changed = false;
     if (n != _gardenMenuN) {
       _gardenMenuN = n;
-      if (mounted) setState(() {});
+      changed = true;
     }
+    if (care != _gardenCare) {
+      // vườn vừa có thêm việc cần làm → nhắc ngay trong app (trừ lúc đang bán hàng)
+      if (care > _gardenCare && mounted && screen != 'play' && hubTab != 'garden') {
+        snack('🌻 Khu vườn có $care chỗ cần chăm sóc, ghé vườn nhé!');
+      }
+      _gardenCare = care;
+      changed = true;
+    }
+    if (changed && mounted) setState(() {});
   }
 
   /// Món từ vườn đã mở (thu hoạch ít nhất 1 lần) – bán ở mọi quán
@@ -1544,11 +1555,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         child: HubDock(
           current: hubTab,
           onSelect: (id) => setState(() => hubTab = id),
-          items: const [
+          items: [
             ('map', '🗺️', 'Bản đồ'),
             ('shop', '🛍️', 'Cửa hàng'),
             ('home', '🏡', 'Quán tôi'),
-            ('garden', '🌻', 'Vườn'),
+            ('garden', '🌻', _gardenCare > 0 ? 'Vườn ($_gardenCare)' : 'Vườn'),
             ('online', '👥', 'Chơi đôi'),
           ],
         ),
@@ -2006,7 +2017,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           'Gieo cây ở ruộng, nuôi vịt/bò trong chuồng, thả cá hồi/tôm hùm xuống hồ. Cây con lớn theo ngày thật.',
           'Mỗi ngày: tưới cây 💧, cho ăn 🌽, dọn chuồng/thay nước 🧹. Bón phân/vitamin giúp lớn nhanh hơn.',
           'Thời tiết đổi mỗi ngày: nắng gắt làm cây khát nhanh, mưa bão dễ gây úng và nhiễm lạnh.',
-          'Gặp sâu bệnh, cỏ dại, bệnh gia súc… phải vào xử lý thì mới lớn tiếp. Điện thoại sẽ báo khi vườn cần chăm.',
+          'Gặp sâu bệnh, cỏ dại, bệnh gia súc… phải vào xử lý thì mới lớn tiếp. Mục 🌻 Vườn hiện số chỗ đang cần chăm.',
           'Thu hoạch lần đầu mở món mới (Vịt quay, Bò Wagyu, Tôm hùm…) bán được ở mọi quán.',
         ], tint: Pal.mint),
         _guideCard('👥', 'Chơi đôi', [
