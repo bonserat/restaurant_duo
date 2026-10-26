@@ -8,17 +8,24 @@ const int kHour = 3600000;
 const int kStep = 10 * 60000; // mô phỏng theo bước 10 phút
 const int kSlotMs = 6 * kHour; // mỗi 6 giờ có thể phát sinh 1 sự cố
 
+/// Nhân 2 số 32-bit, giữ 32 bit thấp – cho kết quả giống hệt nhau trên iPhone lẫn trình duyệt web
+int _mul32(int a, int b) {
+  final lo = (a & 0xffff) * b;
+  final hi = (((a >> 16) & 0xffff) * b) & 0xffff;
+  return (lo + hi * 0x10000) & 0xffffffff;
+}
+
 /// Băm chuỗi ra số thực [0,1) – giống hệt nhau trên mọi máy
 double hash01(String s) {
   var h = 0x811c9dc5;
   for (final u in s.codeUnits) {
-    h ^= u;
-    h = (h * 0x01000193) & 0xffffffff;
+    h = (h ^ u) & 0xffffffff;
+    h = _mul32(h, 0x01000193);
   }
   // trộn thêm cho đều
-  h ^= h >> 15;
-  h = (h * 0x2c1b3c6d) & 0xffffffff;
-  h ^= h >> 12;
+  h = (h ^ (h >> 15)) & 0xffffffff;
+  h = _mul32(h, 0x2c1b3c6d);
+  h = (h ^ (h >> 12)) & 0xffffffff;
   return (h & 0xffffff) / 0x1000000;
 }
 
