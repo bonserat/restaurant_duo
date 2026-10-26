@@ -16,6 +16,7 @@ import 'ui.dart';
 import 'dishes.dart';
 import 'garden_store.dart';
 import 'garden_ui.dart';
+import 'warmup.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -189,6 +190,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     Garden.instance.addListener(_onGarden);
     load();
+    Future.delayed(const Duration(seconds: 2), preloadSounds);
   }
 
   // Khu vườn chung đổi (người kia vừa chăm sóc / thu hoạch) → cập nhật thực đơn
@@ -1453,7 +1455,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) onBack();
       },
-      child: Scaffold(backgroundColor: hub ? Pal.bg : Pal.ink, body: page),
+      child: Scaffold(
+        backgroundColor: hub ? Pal.bg : Pal.ink,
+        body: Stack(children: [
+          Positioned.fill(child: page),
+          // bản web: tải sẵn font emoji ngay từ đầu cho mượt
+          const Positioned(left: 0, right: 0, top: 0, child: EmojiWarmup()),
+        ]),
+      ),
     );
   }
 

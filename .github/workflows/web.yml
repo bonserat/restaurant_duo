@@ -30,10 +30,11 @@ jobs:
       - name: Thêm nền tảng web (nếu repo chưa có thư mục web)
         run: '[ -f web/index.html ] || flutter create . --platforms web'
 
-      - name: Đặt tên trang
-        run: |
-          sed -i 's#<title>.*</title>#<title>Nhà Hàng Đôi</title>#' web/index.html
-          sed -i 's#content="[^"]*" name="apple-mobile-web-app-title"#content="Nhà Hàng Đôi" name="apple-mobile-web-app-title"#; s#name="apple-mobile-web-app-title" content="[^"]*"#name="apple-mobile-web-app-title" content="Nhà Hàng Đôi"#' web/index.html
+      - name: Tên + biểu tượng riêng của game
+        run: python3 tools/web_brand.py web
+
+      - name: Màn hình chờ lúc tải game
+        run: python3 tools/web_splash.py web/index.html
 
       - run: flutter pub get
 
