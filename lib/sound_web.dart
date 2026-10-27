@@ -1,3 +1,4 @@
+// @dart=3.3
 // Âm thanh cho bản web bằng Web Audio API: mỗi file chỉ tải + giải mã 1 lần,
 // phát lại cực nhẹ nên không làm game giật như khi tạo thẻ <audio> mới mỗi lần.
 import 'dart:js_interop';
