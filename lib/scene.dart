@@ -1,6 +1,7 @@
 // Cảnh nhà hàng 2D vẽ bằng CustomPainter: nhân vật biết đi, ngồi, gọi món, ăn;
 // bếp có lửa, hơi nước, khói. Không cần thêm thư viện hay file ảnh nào.
 import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'data.dart';
@@ -33,8 +34,23 @@ Color _a(Color c, double o) => c.withAlpha((o.clamp(0.0, 1.0) * 255).round());
 Color _dk(Color c, [double k = 0.25]) => Color.lerp(c, Colors.black, k)!;
 Color _lt(Color c, [double k = 0.25]) => Color.lerp(c, Colors.white, k)!;
 
+/// Bản web: vẽ ~30 hình/giây thay vì 60 cho nhẹ máy (chuyển động vẫn đúng tốc độ)
+const double kWebFrame = 1 / 31;
+void webTick(ValueNotifier<double> clock, Duration e) {
+  final t = e.inMicroseconds / 1e6;
+  if (kIsWeb && t > clock.value && t - clock.value < kWebFrame) return;
+  clock.value = t;
+}
+
 void _emoji(Canvas c, String e, Offset center, double size, {double alpha = 1}) {
   if (alpha <= 0.01) return;
+  if (kIsWeb && alpha < 0.99) {
+    // trên web: làm mờ bằng màu chữ, tránh saveLayer (rất tốn trên trình duyệt)
+    final q = (alpha * 10).round() / 10;
+    final tpa = _text(e, size, color: Color.fromRGBO(0, 0, 0, max(0.1, q)));
+    tpa.paint(c, center - Offset(tpa.width / 2, tpa.height / 2));
+    return;
+  }
   final tp = _text(e, size);
   final o = center - Offset(tp.width / 2, tp.height / 2);
   if (alpha >= 0.99) {
@@ -95,6 +111,10 @@ const Map<String, VTheme> _themes = {
   'chinese': VTheme(Color(0xFFF3E0C0), Color(0xFFE8CFA2), Color(0xFFB71C1C), Color(0xFF6D0F0F), Color(0xFF6D3B1F), Color(0xFFFFE9B0), Color(0xFFFFC107)),
   'mexican': VTheme(Color(0xFFF6D7B0), Color(0xFFE9BF8C), Color(0xFF1E8A8A), Color(0xFF0D5555), Color(0xFFA0522D), Color(0xFFFFF3E0), Color(0xFFFF7043)),
   'truck': VTheme(Color(0xFFB0BEC5), Color(0xFFA2B1B9), Color(0xFFFFC107), Color(0xFF37474F), Color(0xFF78909C), Color(0xFFECEFF1), Color(0xFFFF5722)),
+  // nhà hàng riêng
+  'poseidon': VTheme(Color(0xFFD6EEF5), Color(0xFFC2E3EE), Color(0xFF0D47A1), Color(0xFF062B63), Color(0xFF5D7A8C), Color(0xFFF1FBFF), Color(0xFF00ACC1)),
+  'goyuhan': VTheme(Color(0xFF5B4636), Color(0xFF4E3B2D), Color(0xFF8E1B1B), Color(0xFF2B0A0A), Color(0xFF3E2A1E), Color(0xFFFFF3E0), Color(0xFFFF7043)),
+  'binhdan': VTheme(Color(0xFFE9D3A3), Color(0xFFDDC28A), Color(0xFF8D6E3F), Color(0xFF4E3A1A), Color(0xFF7A5A2C), Color(0xFFFFF8E1), Color(0xFF7CB342)),
 };
 
 VTheme vtheme(String id) => _themes[id] ?? _themes['cafe']!;
@@ -1106,6 +1126,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         _cleanAt[i] = _t; // vừa dọn bàn
         _wipeUntil = _t + 0.7;
         Sound.sfx('clean');
+        _walkTo(i);
       }
       _dirtyP[i] = dirty;
 
@@ -1113,8 +1134,12 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
       if (!first && _stP[i] == 1 && stv == 2) {
         _serveAt[i] = _t; // vừa mang món ra
         Sound.sfx('serve');
+        _walkTo(i);
       }
-      if (!first && _stP[i] == 0 && stv == 1) Sound.sfx('order');
+      if (!first && _stP[i] == 0 && stv == 1) {
+        Sound.sfx('order');
+        _walkTo(i);
+      }
       _stP[i] = stv;
     }
     // Âm thanh sự cố ở sảnh (bếp tự lo sự cố của bếp)
@@ -1136,6 +1161,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
 
   void _onTick(Duration e) {
     final t = e.inMicroseconds / 1e6;
+    if (kIsWeb && t > _t && t - _t < kWebFrame) return;
     final dt = (t - _t).clamp(0.0, 0.1).toDouble();
     if (_size != Size.zero && _wPath.isNotEmpty) {
       var step = max(_size.width, 300.0) * 0.75 * dt;
@@ -1168,6 +1194,16 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
   }
 
   double get _custSpeed => max(_size.width, 300.0) * 0.45;
+
+  /// Phục vụ đi tới bàn [i] – dùng khi bàn đổi trạng thái (ghi món, mang món, dọn bàn),
+  /// nên dù người chạm là máy này hay máy kia, cả 2 máy đều thấy phục vụ đi lại.
+  void _walkTo(int i) {
+    if (i >= _tc.length) return;
+    final dest = _approach(i, _wp);
+    if (_wPath.isNotEmpty && (_wPath.last - dest).distance < 2) return; // đang đi tới đó rồi
+    if ((_wp - dest).distance < 2) return;
+    _goTo(dest);
+  }
 
   void _goTo(Offset px) {
     final w = _size.width, h = _size.height;
@@ -2213,9 +2249,27 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       _heatP = List.filled(n, 0.5);
       _knifeAt = List.filled(n, -10.0);
       _shakeAt = List.filled(n, -10.0);
+      _hadT = List.filled(n, false);
       first = true;
     }
+    // máy này vừa chọn bếp khác → đầu bếp đi tới đó
+    if (widget.activeStation != _prevActive) {
+      _prevActive = widget.activeStation;
+      if (widget.activeStation >= 0) _chefGo = widget.activeStation;
+    }
     for (var i = 0; i < n; i++) {
+      // có người thao tác ở bếp i (nhận order, thái, cho nguyên liệu, nêm, vặn lửa, lấy món)
+      if (!first) {
+        final key0 = st[i].board.length * 100 + st[i].chopLeft;
+        final touched = (st[i].t != null && _wasEmpty(i)) || // vừa nhận order
+            st[i].added.length > _addedP[i] ||
+            key0 < _chopKey[i] ||
+            (key0 > _chopKey[i] && st[i].board.length > _chopKey[i] ~/ 100) ||
+            st[i].salt > _saltP[i] + 0.01 ||
+            (st[i].heat - _heatP[i]).abs() > 0.12 ||
+            (_doneP[i] && st[i].t == null);
+        if (touched) _chefGo = i;
+      }
       final d = st[i].done;
       if (!first && d && !_doneP[i]) {
         _doneAt[i] = t;
@@ -2254,6 +2308,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       final tk = st[i].t;
       if (tk != null) _lastEmoji[i] = tk.recipe.id;
       _doneP[i] = d;
+      _hadT[i] = tk != null;
     }
     // Âm thanh sự cố trong bếp
     final now = <int, String>{for (final x in widget.incidents) x.id: x.type};
@@ -2277,9 +2332,16 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     return min(max(((x - _ox) / _cw).floor(), 0), n - 1);
   }
 
+  // bếp mà đầu bếp đang đứng: bếp vừa được thao tác gần nhất (của bất kỳ máy nào)
+  int _chefGo = -1;
+  int _prevActive = -1;
+  List<bool> _hadT = [];
+  bool _wasEmpty(int i) => i < _hadT.length && !_hadT[i];
+
   int get _chefAt {
     final n = widget.stations.length;
     if (n == 0) return 0;
+    if (_chefGo >= 0 && _chefGo < n) return _chefGo;
     final a = widget.activeStation;
     if (a >= 0 && a < n) return a;
     return min(max(_target, 0), n - 1);
@@ -2287,6 +2349,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
 
   void _onTick(Duration e) {
     final t = e.inMicroseconds / 1e6;
+    if (kIsWeb && t > _clock.value && t - _clock.value < kWebFrame) return;
     final dt = (t - _clock.value).clamp(0.0, 0.1).toDouble();
     final n = widget.stations.length;
     if (_size != Size.zero && n > 0) {
@@ -2321,6 +2384,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     final i = _stationAt(p.dx);
     if (i < 0) return;
     _target = i;
+    _chefGo = i;
     // 2) Bếp đang cháy
     for (final x in widget.incidents) {
       if (x.type == 'fire' && x.target == i) {
@@ -2354,6 +2418,7 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
           final i = _stationAt(box.globalToLocal(det.offset + const Offset(28, 28)).dx);
           if (i >= 0) {
             _target = i;
+            _chefGo = i;
             widget.onDrop?.call(i, det.data);
           }
         },
@@ -2594,8 +2659,10 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
     // Hoạt cảnh mang món ra quầy: món bay lên
     final ks = t - _sentAt[i];
     if (ks >= 0 && ks < 0.7 && _sentEmoji[i].isNotEmpty) {
-      c.saveLayer(null, Paint()..color = Color.fromRGBO(0, 0, 0, (1 - ks / 0.7).clamp(0.0, 1.0).toDouble()));
-      drawDish(c, _sentEmoji[i], potRect.topCenter - Offset(0, potW * 0.36 + ks * h * 0.35), potW * 1.15 * (1 + ks * 0.3), t: t);
+      final dp = potRect.topCenter - Offset(0, potW * 0.36 + ks * h * 0.35);
+      final ds = potW * 1.15 * (1 + ks * 0.3);
+      c.saveLayer(Rect.fromCenter(center: dp, width: ds * 1.6, height: ds * 1.6), Paint()..color = Color.fromRGBO(0, 0, 0, (1 - ks / 0.7).clamp(0.0, 1.0).toDouble()));
+      drawDish(c, _sentEmoji[i], dp, ds, t: t);
       c.restore();
     }
 
@@ -2763,7 +2830,9 @@ class _ConfettiLayerState extends State<ConfettiLayer> with SingleTickerProvider
   void initState() {
     super.initState();
     _ticker = createTicker((e) {
-      _clock.value = e.inMicroseconds / 1e6;
+      final tt = e.inMicroseconds / 1e6;
+      if (kIsWeb && tt > _clock.value && tt - _clock.value < kWebFrame) return;
+      _clock.value = tt;
       // mỗi quả pháo hoa nổ một tiếng (chỉ ~8 quả đầu cho đỡ ồn)
       final k = (_clock.value / 0.7).floor();
       if (widget.fireworks && widget.sound && k != _boom && k < 8) {
@@ -2879,7 +2948,7 @@ class _DancingCoupleState extends State<DancingCouple> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((e) => _clock.value = e.inMicroseconds / 1e6)..start();
+    _ticker = createTicker((e) => webTick(_clock, e))..start();
   }
 
   @override
@@ -2993,7 +3062,7 @@ class _LayoutEditorState extends State<LayoutEditor> with SingleTickerProviderSt
   void initState() {
     super.initState();
     _initPos();
-    _ticker = createTicker((e) => _clock.value = e.inMicroseconds / 1e6)..start();
+    _ticker = createTicker((e) => webTick(_clock, e))..start();
   }
 
   @override
@@ -3671,7 +3740,7 @@ class _DecoPreviewState extends State<DecoPreview> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((e) => _clock.value = e.inMicroseconds / 1e6)..start();
+    _ticker = createTicker((e) => webTick(_clock, e))..start();
   }
 
   @override

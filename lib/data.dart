@@ -110,9 +110,68 @@ const venues = [
     Recipe('burger', 'Burger', '🍔', ['bun', 'meat', 'veg', 'cheese'], 6, 60, 100),
     Recipe('combo', 'Combo burger + khoai', '🍱', ['bun', 'meat', 'cheese', 'potato'], 8, 100, 300),
   ]),
+  // ---------- Nhà hàng riêng: mỗi người chọn 1 trong 3 kiểu ----------
+  Venue('poseidon', 'Poseidon – Buffet cua & hải sản', '🦀', 1000, 10, 0.95, [
+    Ing('crab', '🦀', 'Cua', 2),
+    Ing('shrimp', '🦐', 'Tôm', 1),
+    Ing('squid', '🦑', 'Mực', 2),
+    Ing('oyster', '🦪', 'Hàu', 1),
+    Ing('garlic', '🧄', 'Tỏi', 1),
+    Ing('butter', '🧈', 'Bơ'),
+    Ing('chili', '🌶️', 'Ớt', 1),
+    Ing('onion', '🧅', 'Hành', 1),
+    Ing('lemon', '🍋', 'Chanh', 1),
+  ], [
+    Recipe('ps_cua', 'Cua sốt ớt', '🦀', ['crab', 'chili', 'garlic'], 7, 110, 0),
+    Recipe('ps_tom', 'Tôm nướng bơ tỏi', '🦐', ['shrimp', 'butter', 'garlic'], 6, 90, 0),
+    Recipe('ps_hau', 'Hàu nướng mỡ hành', '🦪', ['oyster', 'onion', 'butter'], 6, 95, 300),
+    Recipe('ps_lau', 'Lẩu hải sản', '🍲', ['crab', 'shrimp', 'squid', 'lemon'], 9, 180, 600),
+  ]),
+  Venue('goyuhan', 'Goyuhan – Buffet nướng Hàn Quốc', '🥓', 1000, 10, 0.95, [
+    Ing('porkb', '🥓', 'Ba chỉ heo', 2),
+    Ing('beef', '🥩', 'Bò', 3),
+    Ing('lettuce', '🥬', 'Xà lách', 1),
+    Ing('garlic', '🧄', 'Tỏi', 1),
+    Ing('ksauce', '🫙', 'Sốt Hàn'),
+    Ing('kimchi', '🌶️', 'Kim chi'),
+    Ing('rice', '🍚', 'Cơm'),
+    Ing('egg', '🥚', 'Trứng'),
+    Ing('mushroom', '🍄', 'Nấm', 1),
+  ], [
+    Recipe('gy_bachi', 'Ba chỉ nướng cuốn rau', '🥓', ['porkb', 'lettuce', 'garlic'], 7, 100, 0),
+    Recipe('gy_galbi', 'Bò nướng Galbi', '🥩', ['beef', 'ksauce', 'garlic'], 8, 130, 0),
+    Recipe('gy_bibim', 'Cơm trộn Bibimbap', '🍚', ['rice', 'egg', 'mushroom', 'kimchi'], 7, 110, 300),
+    Recipe('gy_kimchi', 'Canh kim chi hầm', '🍲', ['kimchi', 'porkb', 'mushroom'], 8, 120, 550),
+  ]),
+  Venue('binhdan', 'Bình Dần – Chim đồng, heo tộc', '🐦', 1000, 10, 0.95, [
+    Ing('bird', '🐦', 'Chim đồng', 3),
+    Ing('pig', '🐖', 'Heo tộc', 3),
+    Ing('lime', '🍃', 'Lá chanh', 1),
+    Ing('lemongrass', '🌿', 'Sả', 2),
+    Ing('chili', '🌶️', 'Ớt', 1),
+    Ing('honey', '🍯', 'Mật ong'),
+    Ing('ginger', '🫚', 'Gừng', 1),
+    Ing('sticky', '🍙', 'Xôi'),
+  ], [
+    Recipe('bd_chimchien', 'Chim đồng chiên giòn', '🐦', ['bird', 'ginger', 'chili'], 7, 100, 0),
+    Recipe('bd_chimmat', 'Chim đồng nướng mật ong', '🍯', ['bird', 'honey', 'lemongrass'], 8, 120, 0),
+    Recipe('bd_heola', 'Heo tộc nướng lá chanh', '🐖', ['pig', 'lime', 'chili'], 8, 140, 300),
+    Recipe('bd_heoxa', 'Heo tộc xào sả ớt & xôi', '🍙', ['pig', 'lemongrass', 'chili', 'sticky'], 9, 170, 550),
+  ]),
 ];
 
 Venue venueById(String id) => venues.firstWhere((v) => v.id == id);
+
+/// 3 kiểu nhà hàng riêng (mỗi chủ quán chỉ chọn được 1)
+const sigVenueIds = ['poseidon', 'goyuhan', 'binhdan'];
+bool isSigVenue(String id) => sigVenueIds.contains(id);
+
+/// Mô tả ngắn của từng kiểu
+const sigBlurb = {
+  'poseidon': 'Buffet cua, tôm, mực, hàu tươi sống. Đông khách cuối tuần và ngày lễ.',
+  'goyuhan': 'Buffet thịt nướng Hàn Quốc: ba chỉ, bò Galbi, kim chi. Hút khách khi trời mát, mưa.',
+  'binhdan': 'Đặc sản chim đồng, heo tộc nướng than. Quán nhậu đông vui khi trời mưa.',
+};
 
 Recipe recipeById(String id) => [...venues.expand((v) => v.recipes), ...gardenRecipes].firstWhere((r) => r.id == id);
 

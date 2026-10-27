@@ -4,7 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'data.dart';
-import 'scene.dart' show drawPerson, Look;
+import 'scene.dart' show drawPerson, Look, webTick;
 
 class _Spot {
   final String id;
@@ -14,19 +14,37 @@ class _Spot {
 }
 
 const _spots = [
-  _Spot('cafe', Offset(0.27, 0.40), Color(0xFFF3E1C7), Color(0xFF8D5B3C), Color(0xFFE6A15A)),
-  _Spot('bakery', Offset(0.73, 0.40), Color(0xFFFFE4EC), Color(0xFFB0577A), Color(0xFFFF80AB)),
-  _Spot('chinese', Offset(0.17, 0.80), Color(0xFFFFF1D6), Color(0xFFB71C1C), Color(0xFFFFC107)),
-  _Spot('mexican', Offset(0.83, 0.80), Color(0xFFFFE7CF), Color(0xFF1E8A8A), Color(0xFFFF7043)),
-  _Spot('truck', Offset(0.50, 0.81), Color(0xFFFFFFFF), Color(0xFFFFC107), Color(0xFFFF5722)),
+  _Spot('cafe', Offset(0.25, 0.625), Color(0xFFF3E1C7), Color(0xFF8D5B3C), Color(0xFFE6A15A)),
+  _Spot('bakery', Offset(0.75, 0.625), Color(0xFFFFE4EC), Color(0xFFB0577A), Color(0xFFFF80AB)),
+  _Spot('chinese', Offset(0.17, 0.935), Color(0xFFFFF1D6), Color(0xFFB71C1C), Color(0xFFFFC107)),
+  _Spot('mexican', Offset(0.83, 0.935), Color(0xFFFFE7CF), Color(0xFF1E8A8A), Color(0xFFFF7043)),
+  _Spot('truck', Offset(0.50, 0.935), Color(0xFFFFFFFF), Color(0xFFFFC107), Color(0xFFFF5722)),
 ];
+
+/// Màu riêng của 3 kiểu nhà hàng riêng
+const _sigLook = {
+  'poseidon': _Spot('poseidon', Offset.zero, Color(0xFFE1F5FE), Color(0xFF0D47A1), Color(0xFF00ACC1)),
+  'goyuhan': _Spot('goyuhan', Offset.zero, Color(0xFFFFF3E0), Color(0xFF8E1B1B), Color(0xFF212121)),
+  'binhdan': _Spot('binhdan', Offset.zero, Color(0xFFFFF0C2), Color(0xFF6D4C1F), Color(0xFF558B2F)),
+};
+
+/// Một lô "nhà hàng riêng" trên bản đồ: của mình (bên trái) hoặc của người kia (bên phải)
+class SigSpot {
+  final String hitId; // id gửi về khi chạm
+  final String? venueId; // null = chưa mở (đất trống)
+  final String owner;
+  final int rank; // hạng quán 1..5
+  final bool mine;
+  const SigSpot({required this.hitId, required this.venueId, required this.owner, required this.rank, required this.mine});
+}
 
 class TownMap extends StatefulWidget {
   final Set<String> owned;
   final String current;
   final bool night;
   final void Function(String venueId) onTap;
-  const TownMap({super.key, required this.owned, required this.current, required this.onTap, this.night = false});
+  final List<SigSpot> sigs;
+  const TownMap({super.key, required this.owned, required this.current, required this.onTap, this.night = false, this.sigs = const []});
   @override
   State<TownMap> createState() => _TownMapState();
 }
@@ -40,7 +58,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((e) => _clock.value = e.inMicroseconds / 1e6)..start();
+    _ticker = createTicker((e) => webTick(_clock, e))..start();
   }
 
   @override
@@ -91,12 +109,12 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     }
 
     // Sông + cầu
-    final river = Path()..moveTo(0, h * 0.505);
+    final river = Path()..moveTo(0, h * 0.42);
     for (double x = 0; x <= w; x += 8) {
-      river.lineTo(x, h * 0.505 + sin(x / w * pi * 2) * h * 0.02);
+      river.lineTo(x, h * 0.42 + sin(x / w * pi * 2) * h * 0.012);
     }
     for (double x = w; x >= 0; x -= 8) {
-      river.lineTo(x, h * 0.565 + sin(x / w * pi * 2 + 0.5) * h * 0.02);
+      river.lineTo(x, h * 0.47 + sin(x / w * pi * 2 + 0.5) * h * 0.012);
     }
     river.close();
     c.drawPath(river, Paint()..color = const Color(0xFF6EC6F0));
@@ -106,7 +124,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       ..strokeCap = StrokeCap.round;
     for (var k = 0; k < 9; k++) {
       final x = (k * w / 8 + t * 18) % (w + 30) - 15;
-      final y = h * 0.535 + sin(x / w * pi * 2 + 0.25) * h * 0.02;
+      final y = h * 0.445 + sin(x / w * pi * 2 + 0.25) * h * 0.012;
       c.drawLine(Offset(x, y), Offset(x + 12, y), wave);
     }
 
@@ -130,12 +148,12 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       }
     }
 
-    final y1 = h * 0.12, y2 = h * 0.93, x1 = w * 0.5;
+    final y1 = h * 0.07, y2 = h * 0.745, x1 = w * 0.5;
     vRoad(x1);
     hRoad(y1);
     hRoad(y2);
     // cầu qua sông
-    final br = Rect.fromCenter(center: Offset(x1, h * 0.535), width: rw + 22, height: h * 0.1);
+    final br = Rect.fromCenter(center: Offset(x1, h * 0.445), width: rw + 22, height: h * 0.075);
     c.drawRRect(RRect.fromRectAndRadius(br, const Radius.circular(4)), Paint()..color = const Color(0xFFA1887F));
     c.drawRect(Rect.fromCenter(center: br.center, width: rw, height: br.height), road);
     for (final sx in [br.left + 3, br.right - 3]) {
@@ -144,12 +162,18 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         ..strokeWidth = 4);
     }
 
+    // Tên đường
+    _roadName(c, Offset(w * 0.25, y1), 'Đường Hoà Xuân', 0, unit);
+    _roadName(c, Offset(w * 0.78, y2), 'Đường Hói Kiểng 21', 0, unit);
+    _roadName(c, Offset(x1, h * 0.58), 'Đường Nguyễn Phước Lan', -pi / 2, unit);
+
     // Cây
     final tr = Random(11);
     for (var k = 0; k < 16; k++) {
       final p = Offset(tr.nextDouble() * w, tr.nextDouble() * h);
-      if ((p.dx - x1).abs() < rw * 1.2 || (p.dy - y1).abs() < rw || (p.dy - y2).abs() < rw || (p.dy - h * 0.535).abs() < h * 0.05) continue;
+      if ((p.dx - x1).abs() < rw * 1.2 || (p.dy - y1).abs() < rw || (p.dy - y2).abs() < rw || (p.dy - h * 0.445).abs() < h * 0.04) continue;
       if (_spots.any((s) => (Offset(s.pos.dx * w, s.pos.dy * h) - p).distance < unit * 0.2)) continue;
+      if ((p.dy - h * 0.3).abs() < unit * 0.25) continue; // chừa chỗ cho 2 nhà hàng riêng
       _tree(c, p, unit * (0.035 + tr.nextDouble() * 0.02), t + k);
     }
 
@@ -165,6 +189,33 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
 
     // Quán
     _hit.clear();
+    for (final sg in widget.sigs) {
+      final p = Offset((sg.mine ? 0.25 : 0.75) * w, h * 0.3);
+      final bs = unit * 0.3;
+      final press = _pressed == sg.hitId ? 0.94 : 1.0;
+      _hit[sg.hitId] = Rect.fromCenter(center: p - Offset(0, bs * 0.3), width: bs * 1.5, height: bs * 1.5);
+      c.save();
+      c.translate(p.dx, p.dy);
+      c.scale(press);
+      final vid = sg.venueId;
+      if (vid == null) {
+        _emptyLot(c, bs, sg.mine, t);
+      } else {
+        final look = _sigLook[vid] ?? _spots.first;
+        _shop(c, bs, _Spot(vid, Offset(sg.mine ? 0.25 : 0.75, 0.3), look.wall, look.roof, look.awning), true, widget.current == vid && sg.mine, t);
+        // cờ + sao hạng quán trên mái
+        final stars = TextPainter(text: TextSpan(text: '⭐' * sg.rank.clamp(1, 5), style: TextStyle(fontSize: bs * 0.12)), textDirection: TextDirection.ltr)..layout();
+        stars.paint(c, Offset(-stars.width / 2, -bs * 1.18));
+      }
+      c.restore();
+      final v = vid == null ? null : venueById(vid);
+      final title = v == null ? (sg.mine ? '🏗️ Đất của ${sg.owner}' : '🏗️ Đất của ${sg.owner}') : '${v.emoji} ${v.name.split(' – ').first}';
+      _label(c, p + Offset(0, bs * 0.42), title, sg.mine ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF), Colors.white, unit);
+      _label(c, p + Offset(0, bs * 0.42 + unit * 0.065), v == null ? (sg.mine ? 'Chạm để mở nhà hàng riêng' : 'Chưa mở quán') : 'Quán của ${sg.owner}', Colors.white, const Color(0xFF221B3F), unit * 0.85);
+      if (widget.current == vid && sg.mine) {
+        _pinMark(c, p - Offset(0, bs * 1.25 + sin(t * 4).abs() * unit * 0.02), unit * 0.05);
+      }
+    }
     final sorted = [..._spots]..sort((a, b) => a.pos.dy.compareTo(b.pos.dy));
     for (final s in sorted) {
       final p = Offset(s.pos.dx * w, s.pos.dy * h);
@@ -214,6 +265,47 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     if (widget.night) {
       c.drawRect(bg, Paint()..color = const Color(0x55101040));
     }
+  }
+
+  void _roadName(Canvas c, Offset center, String text, double angle, double unit) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: TextStyle(fontSize: max(9.5, unit * 0.03), fontWeight: FontWeight.w800, color: Colors.white)),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    c.save();
+    c.translate(center.dx, center.dy);
+    c.rotate(angle);
+    final r = Rect.fromCenter(center: Offset.zero, width: tp.width + 14, height: tp.height + 6);
+    c.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(5)), Paint()..color = const Color(0xFF1565C0));
+    c.drawRRect(
+      RRect.fromRectAndRadius(r.deflate(2), const Radius.circular(4)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = Colors.white70,
+    );
+    tp.paint(c, Offset(-tp.width / 2, -tp.height / 2));
+    c.restore();
+  }
+
+  /// Lô đất trống chờ mở nhà hàng riêng
+  void _emptyLot(Canvas c, double s, bool mine, double t) {
+    final lot = Rect.fromLTRB(-s * 0.6, -s * 0.75, s * 0.6, 0);
+    c.drawRRect(RRect.fromRectAndRadius(lot, Radius.circular(s * 0.08)), Paint()..color = const Color(0xFFD7C4A3));
+    final dash = Paint()
+      ..color = mine ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF)
+      ..strokeWidth = 3;
+    for (double x = lot.left; x < lot.right; x += 14) {
+      c.drawLine(Offset(x, lot.top), Offset(min(x + 7, lot.right), lot.top), dash);
+      c.drawLine(Offset(x, lot.bottom), Offset(min(x + 7, lot.right), lot.bottom), dash);
+    }
+    for (double y = lot.top; y < lot.bottom; y += 14) {
+      c.drawLine(Offset(lot.left, y), Offset(lot.left, min(y + 7, lot.bottom)), dash);
+      c.drawLine(Offset(lot.right, y), Offset(lot.right, min(y + 7, lot.bottom)), dash);
+    }
+    final bob = mine ? sin(t * 3) * s * 0.03 : 0.0;
+    final tp = TextPainter(text: TextSpan(text: mine ? '🏗️' : '🚧', style: TextStyle(fontSize: s * 0.36)), textDirection: TextDirection.ltr)..layout();
+    tp.paint(c, Offset(-tp.width / 2, -s * 0.38 - tp.height / 2 + bob));
   }
 
   void _tree(Canvas c, Offset p, double r, double t) {

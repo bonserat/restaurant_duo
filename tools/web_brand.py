@@ -40,6 +40,15 @@ s = s.replace('</head>', '''  <link rel="apple-touch-icon" href="icons/apple-tou
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#221B3F">
+  <script>
+    // Giới hạn độ nét ở mức x2: màn Retina x3 phải vẽ gấp ~2,25 lần điểm ảnh mà mắt khó thấy khác
+    (function () {
+      var r = window.devicePixelRatio || 1;
+      if (r > 2) {
+        try { Object.defineProperty(window, 'devicePixelRatio', { get: function () { return 2; }, configurable: true }); } catch (e) {}
+      }
+    })();
+  </script>
 </head>''', 1)
 open(ip, 'w', encoding='utf-8').write(s)
 print('branding ok')

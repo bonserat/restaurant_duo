@@ -35,6 +35,16 @@ class Garden extends ChangeNotifier {
 
   Set<String> get unlocked => state.unlocked;
 
+  /// Nhà hàng riêng mà [own] đã mở (loại quán, hạng) – lấy từ sự kiện chung
+  (String, int)? sigOf(String own) {
+    GEvent? last;
+    for (final e in events) {
+      if (e.a == 'sig' && e.d['own'] == own && (last == null || e.at >= last.at)) last = e;
+    }
+    if (last == null) return null;
+    return (last.d['v'].toString(), (last.d['r'] as num?)?.toInt() ?? 1);
+  }
+
   Future<void> start(String owner) async {
     who = owner;
     if (_started) return;

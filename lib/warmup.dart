@@ -1,8 +1,8 @@
 // Bản web: nạp sẵn font emoji và âm thanh ngay khi mở game,
 // để lúc chơi không bị khựng vì phải tải giữa chừng.
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'sound.dart';
 
 /// Mọi emoji game dùng (tự sinh từ mã nguồn)
 const kAllEmojis = '🎉 💧 🌽 🪣 🧹 ❤️‍🩹 🥀 ✨ 🔒 💰 🍔 🏠 🌿 🏖️ 🌙 🌸 🧧 🍃 🕊️ ☀️ 🏮 🦋 🐈 💤 🔔 💨 🌼 🌴 🪴 ⭐ 💖 💕 💗 🪩 🐀 💢 ⚡ 🔌 ⏳ 🚶 🕯️ 🍽️ 😋 ❗ 🧂 🔪 🔥 🧯 👆 ✅ 🏆 🌧️ 💪 ♪ ♫ → 🌱 🙂 📈 🌻 ⚠️ 😠 👑 😡 🐕 📰 🏹 🎒 🎁 🕵️ 🍀 😕 😤 🤢 😍 😖 👩‍🍳 👨‍🍳 🛎️ 📅 🗺️ 🛍️ 🏡 👥 🎯 🪑 📖 🔑 🤝 🏁 🔄 ⚙️ 🔊 🧰 🧐 🐾 ♥ 📱 💡 🚪 ⏱ 🆚 😬 ❓ 📋 😣 🧊 🌋 😐 ⬅ 🛠️ 💔 🤚 🍖 ↺ 😢 🔧 🎨 ✓ 🍳 🖼️ ☕ 🫘 🥛 🍵 🍓 🍯 🧋 🍹 🥤 🥐 🌾 🥚 🧈 🍫 🧀 🥖 🍪 🧁 🍰 🥟 🍚 🫓 🥩 🥬 🍜 🥫 🌮 🍅 🥑 🌶️ 🌯 🫔 🚚 🍞 🥔 🍟 🌭 🍱 🍉 🥭 🐉 🌵 🍍 🦆 🐣 🐄 🐮 🐟 🐠 🦞 🦐 🧄 🐛 🧴 🧤 💦 ⛏️ 🥵 ⛱️ 🤒 💉 🪰 🥶 🟢 🥅 🫧 ⛈️ 🍬 🐹 🦜 💐 🌳 🍸 🎹 📚 🛋️ 🗿 🕰️ ☁️ 📒 🏥 💩 🧺 ❤️ 💊';
@@ -24,12 +24,10 @@ class EmojiWarmup extends StatelessWidget {
   }
 }
 
-/// Tải trước các tiếng hiệu ứng vào bộ nhớ đệm của trình duyệt (chạy nền, lỗi thì bỏ qua)
+/// Tải + giải mã sẵn các tiếng hiệu ứng (chạy nền, lỗi thì bỏ qua)
 Future<void> preloadSounds() async {
   if (!kIsWeb) return;
-  for (final n in _sfx) {
-    try {
-      await rootBundle.load('assets/sfx/$n.wav');
-    } catch (_) {}
-  }
+  try {
+    await Sound.preload(_sfx);
+  } catch (_) {}
 }
