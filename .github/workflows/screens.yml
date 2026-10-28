@@ -1,0 +1,43 @@
+# Chụp màn hình bản web để kiểm tra giao diện (chạy tay). Ảnh được đẩy lên nhánh "screens".
+name: Screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      venues:
+        description: 'Danh sách quán, cách nhau bằng dấu phẩy'
+        default: 'goyuhan,poseidon,binhdan,cafe'
+
+permissions:
+  contents: write
+
+jobs:
+  shoot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: '[ -f web/index.html ] || flutter create . --platforms web'
+      - run: flutter pub get
+      - run: flutter build web --release
+      - name: Cài trình duyệt
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: Chụp màn hình
+        run: |
+          mkdir -p shots
+          (cd build/web && python3 -m http.server 8000 >/dev/null 2>&1 &)
+          sleep 2
+          python3 tools/shoot.py "${{ github.event.inputs.venues }}"
+      - name: Đẩy ảnh lên nhánh screens
+        run: |
+          cd shots
+          git init -q
+          git checkout -q -b screens
+          git add .
+          git -c user.name=bot -c user.email=bot@users.noreply.github.com commit -q -m "screens ${{ github.sha }}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screens

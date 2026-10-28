@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -334,6 +335,25 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
+    // Chế độ thử nghiệm cho máy chụp màn hình tự động: ?demo=1&v=<quán>&t=<số bàn>
+    final q = kIsWeb ? Uri.base.queryParameters : const <String, String>{};
+    if (q['demo'] == '1') {
+      owner = kNguyen;
+      await loadData();
+      final v = q['v'];
+      if (v != null && venues.any((x) => x.id == v)) {
+        venueId = v;
+        recipes.addAll(venueById(v).recipes.map((r) => r.id));
+        if (isSigVenue(v)) sig = v;
+      }
+      lv['tables'] = int.tryParse(q['t'] ?? '') ?? 4;
+      lv['stations'] = 2;
+      day = 6;
+      Sound.setEnabled(false);
+      mode = 'local';
+      startDay();
+      return;
+    }
     owner = p.getString('owner') ?? '';
     Sound.setEnabled(p.getBool('sound') ?? true);
     ngocAnhChef = p.getBool('cast') ?? false;
