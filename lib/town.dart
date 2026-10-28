@@ -492,105 +492,322 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     _building(c, l, vid, owned, night);
   }
 
-  /// Ngôi nhà cắt mái: sàn gạch, 2 tường sau cao, 2 tường trước thấp, bàn ghế bên trong
-  void _building(Canvas c, _Lot l, String vid, bool owned, bool night) {
-    final lk0 = _looks[vid] ?? _looks['cafe']!;
-    final lk = owned ? lk0 : _Look(_grey(lk0.floorA), _grey(lk0.floorB), _grey(lk0.wall), _grey(lk0.trim), _grey(lk0.cloth), _grey(lk0.awning));
-    final x0 = l.x0, y0 = l.y0, x1 = l.x1, y1 = l.y1;
-    const wallH = 44.0, lowH = 9.0;
-    // nền nhà (bậc thềm)
-    _box(c, x0 - 0.15, y0 - 0.15, x1 + 0.15, y1 + 0.15, 4, _dk(lk.trim, 0.1), _dk(lk.trim, 0.35), _dk(lk.trim, 0.25));
-    // sàn gạch ô cờ
-    const cell = 0.5;
-    var row = 0;
-    for (var gy = y0; gy < y1 - 0.01; gy += cell, row++) {
-      var col = 0;
-      for (var gx = x0; gx < x1 - 0.01; gx += cell, col++) {
-        c.drawPath(_area(gx, gy, min(gx + cell, x1), min(gy + cell, y1), 4), Paint()..color = (row + col).isEven ? lk.floorA : lk.floorB);
+  // ======================= KIẾN TRÚC TỪNG QUÁN =======================
+  /// Đỉnh mái của từng lô (để đặt tên quán, khói)
+  final Map<String, Offset> _roofTop = {};
+  final Map<String, Offset> _chimney = {};
+
+  Path _pg(List<Offset> pts) {
+    final p = Path()..moveTo(pts.first.dx, pts.first.dy);
+    for (final q in pts.skip(1)) {
+      p.lineTo(q.dx, q.dy);
+    }
+    return p..close();
+  }
+
+  /// 2 mặt tường nhìn thấy (trước-trái dọc gy = y1, trước-phải dọc gx = x1)
+  void _walls(Canvas c, double x0, double y0, double x1, double y1, double h, Color wall, {double z = 0}) {
+    final l = _iso(x0, y1, z), b = _iso(x1, y1, z), r = _iso(x1, y0, z);
+    c.drawPath(_pg([l, b, b - Offset(0, h), l - Offset(0, h)]), Paint()..color = _dk(wall, 0.1));
+    c.drawPath(_pg([b, r, r - Offset(0, h), b - Offset(0, h)]), Paint()..color = wall);
+    c.drawLine(b, b - Offset(0, h), Paint()
+      ..color = _dk(wall, 0.25)
+      ..strokeWidth = 1);
+  }
+
+  /// Ô (cửa sổ/cửa) trên mặt trước-trái: từ gx a→b, cao z0→z1
+  Path _onL(double y1, double a, double b, double z0, double z1) => _pg([_iso(a, y1, z0), _iso(b, y1, z0), _iso(b, y1, z1), _iso(a, y1, z1)]);
+
+  /// Ô trên mặt trước-phải: từ gy a→b
+  Path _onR(double x1, double a, double b, double z0, double z1) => _pg([_iso(x1, a, z0), _iso(x1, b, z0), _iso(x1, b, z1), _iso(x1, a, z1)]);
+
+  void _windows(Canvas c, double x0, double y0, double x1, double y1, double z0, double z1, Color frame, bool night, {bool round = false, bool skipDoor = true}) {
+    final glass = Paint()..color = night ? const Color(0xFFFFE082) : const Color(0xFFB3E5FC);
+    final fr = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = frame;
+    final nL = max(2, ((x1 - x0) / 0.9).floor());
+    for (var k = 0; k < nL; k++) {
+      final a = x0 + (k + 0.25) * (x1 - x0) / nL, b = a + 0.5 * (x1 - x0) / nL;
+      final mid = (a + b) / 2;
+      if (skipDoor && (mid - (x0 + x1) / 2).abs() < (x1 - x0) / nL * 0.6) continue; // chỗ cửa chính
+      if (round) {
+        final ctr = _iso(mid, y1, (z0 + z1) / 2);
+        c.drawCircle(ctr, (z1 - z0) * 0.42, glass);
+        c.drawCircle(ctr, (z1 - z0) * 0.42, fr);
+      } else {
+        c.drawPath(_onL(y1, a, b, z0, z1), glass);
+        c.drawPath(_onL(y1, a, b, z0, z1), fr);
       }
     }
-    // tường sau bên trái (dọc cạnh gx = x0) và tường sau bên phải (dọc cạnh gy = y0)
-    final tl = _iso(x0, y0, 4), tr = _iso(x1, y0, 4), bl = _iso(x0, y1, 4);
-    final up = const Offset(0, wallH);
-    c.drawPath(_quad(bl, tl, tl - up, bl - up), Paint()..color = _dk(lk.wall, 0.12));
-    c.drawPath(_quad(tl, tr, tr - up, tl - up), Paint()..color = lk.wall);
-    // viền đỉnh tường
-    c.drawLine(bl - up, tl - up, Paint()
-      ..color = lk.trim
-      ..strokeWidth = 4);
-    c.drawLine(tl - up, tr - up, Paint()
-      ..color = lk.trim
-      ..strokeWidth = 4);
-    // cửa sổ trên tường sau
-    for (var k = 1; k <= 3; k++) {
-      final a = Offset.lerp(tl, tr, k / 4.2)!;
-      final win = _quad(a - const Offset(0, 30), a + Offset(_tw * 0.45, _th * 0.225) - const Offset(0, 30), a + Offset(_tw * 0.45, _th * 0.225) - const Offset(0, 14), a - const Offset(0, 14));
-      c.drawPath(win, Paint()..color = night ? const Color(0xFFFFE082) : const Color(0xFFB3E5FC));
-      c.drawPath(
-        win,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5
-          ..color = lk.trim,
-      );
-    }
-    for (var k = 1; k <= 2; k++) {
-      final a = Offset.lerp(bl, tl, k / 3)!;
-      final win = _quad(a - const Offset(0, 30), a + Offset(_tw * 0.36, -_th * 0.18) - const Offset(0, 30), a + Offset(_tw * 0.36, -_th * 0.18) - const Offset(0, 14), a - const Offset(0, 14));
-      c.drawPath(win, Paint()..color = night ? const Color(0xFFFFE082) : const Color(0xFFB3E5FC));
-    }
-    // mái hiên sọc dọc tường sau bên phải
-    const stripes = 10;
-    for (var k = 0; k < stripes; k++) {
-      final a = Offset.lerp(tl, tr, k / stripes)! - up + const Offset(0, 4);
-      final b = Offset.lerp(tl, tr, (k + 1) / stripes)! - up + const Offset(0, 4);
-      c.drawPath(_quad(a, b, b + const Offset(0, 9), a + const Offset(0, 9)), Paint()..color = k.isEven ? lk.awning : Colors.white);
-    }
-    // quầy bếp dọc tường sau
-    _box(c, x0 + 0.25, y0 + 0.2, x1 - 0.3, y0 + 0.8, 14, _lt(lk.trim, 0.55), _dk(lk.trim, 0.05), lk.trim);
-    // bếp + nồi trên quầy
-    for (var k = 0; k < 3; k++) {
-      final p = _iso(x0 + 1.0 + k * (x1 - x0 - 1.6) / 2.5, y0 + 0.5, 18);
-      c.drawOval(Rect.fromCenter(center: p, width: 13, height: 6), Paint()..color = const Color(0xFF455A64));
-      c.drawRect(Rect.fromCenter(center: p - const Offset(0, 4), width: 9, height: 7), Paint()..color = const Color(0xFFB0BEC5));
-    }
-    // bàn ghế
-    final nx = max(1, ((x1 - x0 - 0.8) / 1.5).floor()), ny = max(1, ((y1 - y0 - 1.4) / 1.3).floor());
-    for (var j = 0; j < ny; j++) {
-      for (var i = 0; i < nx; i++) {
-        final gx = x0 + 0.7 + (i + 0.5) * (x1 - x0 - 1.0) / nx;
-        final gy = y0 + 1.4 + (j + 0.5) * (y1 - y0 - 1.7) / ny;
-        _table(c, gx, gy, lk);
+    final nR = max(1, ((y1 - y0) / 0.9).floor());
+    for (var k = 0; k < nR; k++) {
+      final a = y0 + (k + 0.25) * (y1 - y0) / nR, b = a + 0.5 * (y1 - y0) / nR;
+      if (round) {
+        final ctr = _iso(x1, (a + b) / 2, (z0 + z1) / 2);
+        c.drawCircle(ctr, (z1 - z0) * 0.42, glass);
+        c.drawCircle(ctr, (z1 - z0) * 0.42, fr);
+      } else {
+        c.drawPath(_onR(x1, a, b, z0, z1), glass);
+        c.drawPath(_onR(x1, a, b, z0, z1), fr);
       }
     }
-    // tường trước thấp (để nhìn được vào trong), chừa lối vào ở giữa cạnh trước-phải
-    final br = _iso(x1, y1, 4), rr = _iso(x1, y0, 4);
-    final low = const Offset(0, lowH);
-    c.drawPath(_quad(bl, br, br - low, bl - low), Paint()..color = _dk(lk.wall, 0.05));
-    final d0 = Offset.lerp(br, rr, 0.4)!, d1 = Offset.lerp(br, rr, 0.6)!;
-    c.drawPath(_quad(br, d0, d0 - low, br - low), Paint()..color = _dk(lk.wall, 0.18));
-    c.drawPath(_quad(d1, rr, rr - low, d1 - low), Paint()..color = _dk(lk.wall, 0.18));
-    for (final p in [bl, br, rr, tl]) {
-      c.drawLine(p, p - Offset(0, p == tl ? wallH : lowH + 2), Paint()
-        ..color = lk.trim
-        ..strokeWidth = 3);
+  }
+
+  /// Cửa chính ở giữa mặt trước-trái + biển hiệu emoji phía trên
+  void _door(Canvas c, double x0, double x1, double y1, double h, Color doorCol, Color awning, String emoji, {double z = 0, bool arch = false}) {
+    final m = (x0 + x1) / 2;
+    c.drawPath(_onL(y1, m - 0.3, m + 0.3, z, z + h * 0.62), Paint()..color = doorCol);
+    if (arch) {
+      final top = _iso(m, y1, z + h * 0.62);
+      c.drawOval(Rect.fromCenter(center: top, width: _tw * 0.3, height: _th * 0.55), Paint()..color = doorCol);
     }
-    // thảm trước cửa
-    c.drawPath(_area(x1 + 0.15, y0 + (y1 - y0) * 0.4, x1 + 0.6, y0 + (y1 - y0) * 0.6), Paint()..color = lk.awning);
-    // biển hiệu trên góc tường sau
-    final sp = _iso(x0, y0, 4 + wallH + 16);
-    final v = venueById(vid);
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: sp, width: 34, height: 26), const Radius.circular(8)), Paint()..color = Colors.white);
+    // mái hiên sọc trên cửa
+    for (var k = 0; k < 4; k++) {
+      final a = m - 0.45 + k * 0.225;
+      c.drawPath(_pg([_iso(a, y1, z + h * 0.78), _iso(a + 0.225, y1, z + h * 0.78), _iso(a + 0.225, y1 + 0.22, z + h * 0.66), _iso(a, y1 + 0.22, z + h * 0.66)]),
+          Paint()..color = k.isEven ? awning : Colors.white);
+    }
+    // biển hiệu
+    final sp = _iso(m, y1, z + h * 0.98);
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: sp, width: 22, height: 16), const Radius.circular(5)), Paint()..color = Colors.white);
     c.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromCenter(center: sp, width: 34, height: 26), const Radius.circular(8)),
+      RRect.fromRectAndRadius(Rect.fromCenter(center: sp, width: 22, height: 16), const Radius.circular(5)),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = lk.trim,
+        ..strokeWidth = 1.5
+        ..color = awning,
     );
-    final tp = TextPainter(text: TextSpan(text: owned ? v.emoji : '🔒', style: const TextStyle(fontSize: 16)), textDirection: TextDirection.ltr)..layout();
+    final tp = TextPainter(text: TextSpan(text: emoji, style: const TextStyle(fontSize: 10)), textDirection: TextDirection.ltr)..layout();
     tp.paint(c, sp - Offset(tp.width / 2, tp.height / 2));
-    if (!owned) c.drawPath(_area(x0 - 0.15, y0 - 0.15, x1 + 0.15, y1 + 0.15, 4), Paint()..color = const Color(0x33FFFFFF));
+  }
+
+  /// Mái 2 dốc, nóc chạy dọc theo gx
+  void _gable(Canvas c, double x0, double y0, double x1, double y1, double h, double rise, Color roof, Color gableWall, {double over = 0.18}) {
+    final a0 = x0 - over, a1 = x1 + over, b0 = y0 - over, b1 = y1 + over, ym = (y0 + y1) / 2;
+    c.drawPath(_pg([_iso(a0, b0, h), _iso(a1, b0, h), _iso(a1, ym, h + rise), _iso(a0, ym, h + rise)]), Paint()..color = _dk(roof, 0.25));
+    c.drawPath(_pg([_iso(x1, y0, h), _iso(x1, y1, h), _iso(x1, ym, h + rise)]), Paint()..color = gableWall);
+    final front = _pg([_iso(a0, ym, h + rise), _iso(a1, ym, h + rise), _iso(a1, b1, h), _iso(a0, b1, h)]);
+    c.drawPath(front, Paint()..color = roof);
+    // hàng ngói
+    final line = Paint()
+      ..color = _dk(roof, 0.18)
+      ..strokeWidth = 1;
+    for (var k = 1; k < 4; k++) {
+      final f = k / 4;
+      c.drawLine(_iso(a0, ym + (b1 - ym) * f, h + rise * (1 - f)), _iso(a1, ym + (b1 - ym) * f, h + rise * (1 - f)), line);
+    }
+    c.drawLine(_iso(a0, ym, h + rise), _iso(a1, ym, h + rise), Paint()
+      ..color = _dk(roof, 0.35)
+      ..strokeWidth = 2.5);
+  }
+
+  /// Mái 4 mặt (nóc ngắn dọc gx nếu ridge > 0). curve > 0: mép mái cong vút (kiểu Á Đông)
+  void _hip(Canvas c, double x0, double y0, double x1, double y1, double h, double rise, Color roof, {double over = 0.25, double ridge = 0.3, double curve = 0}) {
+    final a0 = x0 - over, a1 = x1 + over, b0 = y0 - over, b1 = y1 + over, ym = (y0 + y1) / 2;
+    final rl = x0 + (x1 - x0) * ridge, rr = x1 - (x1 - x0) * ridge;
+    final r0 = _iso(rl, ym, h + rise), r1 = _iso(rr, ym, h + rise);
+    final c00 = _iso(a0, b0, h + curve), c10 = _iso(a1, b0, h + curve), c11 = _iso(a1, b1, h + curve), c01 = _iso(a0, b1, h + curve);
+    Path face(Offset e0, Offset e1, List<Offset> top, Offset sag) {
+      final p = Path()..moveTo(e0.dx, e0.dy);
+      if (curve > 0) {
+        p.quadraticBezierTo(sag.dx, sag.dy, e1.dx, e1.dy);
+      } else {
+        p.lineTo(e1.dx, e1.dy);
+      }
+      for (final q in top) {
+        p.lineTo(q.dx, q.dy);
+      }
+      return p..close();
+    }
+
+    Offset mid(double gx, double gy) => _iso(gx, gy, h - curve * 0.4);
+    c.drawPath(face(c00, c10, [r1, r0], mid((a0 + a1) / 2, b0)), Paint()..color = _dk(roof, 0.3)); // sau
+    c.drawPath(face(c01, c00, [r0], mid(a0, (b0 + b1) / 2)), Paint()..color = _dk(roof, 0.35)); // trái
+    c.drawPath(face(c10, c11, [r1], mid(a1, (b0 + b1) / 2)), Paint()..color = _dk(roof, 0.12)); // phải
+    final fr = face(c11, c01, [r0, r1], mid((a0 + a1) / 2, b1));
+    c.drawPath(fr, Paint()..color = roof); // trước
+    final line = Paint()
+      ..color = _dk(roof, 0.2)
+      ..strokeWidth = 1;
+    for (var k = 1; k < 4; k++) {
+      final f = k / 4;
+      c.drawLine(Offset.lerp(r0, c01, f)!, Offset.lerp(r1, c11, f)!, line);
+    }
+    c.drawLine(r0, r1, Paint()
+      ..color = _dk(roof, 0.4)
+      ..strokeWidth = 2.5);
+    if (curve > 0) {
+      // đầu đao cong vút ở các góc
+      for (final p in [c01, c11, c10]) {
+        c.drawCircle(p - const Offset(0, 1.5), 2.2, Paint()..color = _dk(roof, 0.4));
+      }
+    }
+  }
+
+  /// Toà nhà theo kiến trúc riêng của quán, đặt gọn giữa lô (chừa sân xung quanh)
+  void _building(Canvas c, _Lot l, String vid, bool owned, bool night) {
+    final lk0 = _looks[vid] ?? _looks['cafe']!;
+    Color g(Color x) => owned ? x : _grey(x);
+    final x0 = l.x0 + 0.55, x1 = l.x1 - 0.55, y0 = l.y0 + 0.45, y1 = l.y1 - 0.75;
+    final cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    final v = venueById(vid);
+    // sân trước: lối đi lát gạch ra đường + bồn cây
+    c.drawPath(_area(l.x0 + 0.15, l.y0 + 0.15, l.x1 - 0.15, l.y1 - 0.15), Paint()..color = const Color(0xFF9CD67F));
+    c.drawPath(_area(cx - 0.35, y1, cx + 0.35, l.y1 - 0.1), Paint()..color = const Color(0xFFE0D6C2));
+    var roofTop = _iso(cx, cy, 70);
+    var chimney = _iso(x0 + 0.5, y0 + 0.4, 50);
+    switch (vid) {
+      case 'cafe':
+        // quán cà phê kiểu Âu: tường kem, mái ngói nâu 2 dốc, ô dù ngoài hiên
+        const h = 30.0;
+        _walls(c, x0, y0, x1, y1, h, g(lk0.wall));
+        _windows(c, x0, y0, x1, y1, 9, 22, g(lk0.trim), night);
+        _door(c, x0, x1, y1, h, g(const Color(0xFF6D4C41)), g(lk0.awning), owned ? v.emoji : '🔒');
+        _gable(c, x0, y0, x1, y1, h, 20, g(const Color(0xFFA1503A)), g(_lt(lk0.wall, 0.1)));
+        for (final gx in [x0 + 0.3, x1 - 0.3]) {
+          final p = _iso(gx, y1 + 0.55);
+          c.drawLine(p, p - const Offset(0, 16), Paint()
+            ..color = const Color(0xFF6D4C41)
+            ..strokeWidth = 1.6);
+          c.drawOval(Rect.fromCenter(center: p - const Offset(0, 17), width: 22, height: 8), Paint()..color = g(lk0.awning));
+        }
+        roofTop = _iso(cx, cy, h + 26);
+        chimney = _iso(x0 + 0.6, cy, h + 20);
+        break;
+      case 'bakery':
+        // tiệm bánh như ngôi nhà búp bê: tường hồng, mái dốc cao, ống khói
+        const h = 28.0;
+        _walls(c, x0, y0, x1, y1, h, g(lk0.wall));
+        _windows(c, x0, y0, x1, y1, 8, 20, g(Colors.white), night);
+        _door(c, x0, x1, y1, h, g(const Color(0xFFB0577A)), g(lk0.awning), owned ? v.emoji : '🔒');
+        final ch = _iso(x0 + 0.6, y0 + 0.5, h + 18);
+        c.drawRect(Rect.fromLTWH(ch.dx - 4, ch.dy - 14, 8, 18), Paint()..color = g(const Color(0xFF8D6E63)));
+        _gable(c, x0, y0, x1, y1, h, 28, g(const Color(0xFFE57399)), g(_lt(lk0.wall, 0.2)));
+        roofTop = _iso(cx, cy, h + 34);
+        chimney = ch - const Offset(0, 16);
+        break;
+      case 'chinese':
+        // lầu 2 tầng mái cong đỏ, cột đỏ, đèn lồng
+        const h = 24.0;
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFFFF1D6)));
+        for (final gx in [x0, x0 + (x1 - x0) / 3, x0 + (x1 - x0) * 2 / 3, x1]) {
+          final p = _iso(gx, y1);
+          c.drawLine(p, p - const Offset(0, h), Paint()
+            ..color = g(const Color(0xFFC62828))
+            ..strokeWidth = 3);
+        }
+        _windows(c, x0, y0, x1, y1, 8, 18, g(const Color(0xFFC62828)), night);
+        _door(c, x0, x1, y1, h, g(const Color(0xFFB71C1C)), g(const Color(0xFFFFC107)), owned ? v.emoji : '🔒');
+        _hip(c, x0, y0, x1, y1, h, 10, g(const Color(0xFFC62828)), over: 0.3, ridge: 0.2, curve: 5);
+        final u0 = x0 + 0.6, u1 = x1 - 0.6, v0 = y0 + 0.5, v1 = y1 - 0.5;
+        _walls(c, u0, v0, u1, v1, 14, g(const Color(0xFFFFE0B2)), z: h + 6);
+        _windows(c, u0, v0, u1, v1, h + 9, h + 17, g(const Color(0xFFC62828)), night, skipDoor: false);
+        _hip(c, u0, v0, u1, v1, h + 20, 12, g(const Color(0xFFD32F2F)), over: 0.35, ridge: 0.25, curve: 5);
+        for (final gx in [x0 + 0.2, x1 - 0.2]) {
+          final p = _iso(gx, y1 + 0.25, h - 4);
+          c.drawOval(Rect.fromCenter(center: p, width: 8, height: 10), Paint()..color = g(const Color(0xFFFF5252)));
+        }
+        roofTop = _iso(cx, cy, h + 38);
+        chimney = _iso(u0 + 0.2, v0, h + 30);
+        break;
+      case 'mexican':
+        // nhà đất nung kiểu Mexico: mái bằng, cửa vòm, mái ngói đỏ trên hiên, xương rồng
+        const h = 28.0;
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFF4C99B)));
+        _windows(c, x0, y0, x1, y1, 9, 20, g(const Color(0xFF1E8A8A)), night);
+        _door(c, x0, x1, y1, h, g(const Color(0xFF1E8A8A)), g(lk0.awning), owned ? v.emoji : '🔒', arch: true);
+        c.drawPath(_area(x0, y0, x1, y1, h), Paint()..color = g(const Color(0xFFE8B98A)));
+        c.drawPath(_pg([_iso(x0, y1, h), _iso(x1, y1, h), _iso(x1, y1, h + 4), _iso(x0, y1, h + 4)]), Paint()..color = g(const Color(0xFFD9A273)));
+        c.drawPath(_pg([_iso(x1, y1, h), _iso(x1, y0, h), _iso(x1, y0, h + 4), _iso(x1, y1, h + 4)]), Paint()..color = g(const Color(0xFFE2AE80)));
+        // mái ngói đỏ trên hiên trước
+        c.drawPath(_pg([_iso(x0 - 0.1, y1, h * 0.72), _iso(x1 + 0.1, y1, h * 0.72), _iso(x1 + 0.1, y1 + 0.45, h * 0.55), _iso(x0 - 0.1, y1 + 0.45, h * 0.55)]), Paint()..color = g(const Color(0xFFBF5B2C)));
+        for (final gx in [x0 - 0.15, x1 + 0.25]) {
+          final p = _iso(gx, y1 + 0.5);
+          c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: p - const Offset(0, 9), width: 6, height: 18), const Radius.circular(3)), Paint()..color = g(const Color(0xFF43A047)));
+          c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: p - const Offset(-5, 11), width: 4, height: 8), const Radius.circular(2)), Paint()..color = g(const Color(0xFF43A047)));
+        }
+        roofTop = _iso(cx, cy, h + 14);
+        chimney = _iso(x0 + 0.5, y0 + 0.4, h + 4);
+        break;
+      case 'poseidon':
+        // nhà hải sản xanh trắng, cửa sổ tròn, cua lớn trên nóc, ngọn hải đăng
+        const h = 32.0;
+        final lt = _iso(x0 + 0.35, y0 + 0.35);
+        for (var k = 0; k < 6; k++) {
+          c.drawRect(Rect.fromLTWH(lt.dx - 6, lt.dy - 10 - k * 10, 12, 10), Paint()..color = g(k.isEven ? Colors.white : const Color(0xFFE53935)));
+        }
+        c.drawRect(Rect.fromLTWH(lt.dx - 7, lt.dy - 72, 14, 9), Paint()..color = night ? const Color(0xFFFFF59D) : g(const Color(0xFFB3E5FC)));
+        c.drawPath(_pg([lt - const Offset(9, 72), lt - const Offset(-9, 72), lt - const Offset(0, 82)]), Paint()..color = g(const Color(0xFF0D47A1)));
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFE1F5FE)));
+        for (var k = 0; k < 3; k++) {
+          final z = 6.0 + k * 9;
+          c.drawPath(_pg([_iso(x0, y1, z), _iso(x1, y1, z), _iso(x1, y1, z + 3), _iso(x0, y1, z + 3)]), Paint()..color = g(const Color(0x330D47A1)));
+        }
+        _windows(c, x0, y0, x1, y1, 12, 24, g(const Color(0xFF0D47A1)), night, round: true);
+        _door(c, x0, x1, y1, h, g(const Color(0xFF0D47A1)), g(const Color(0xFF00ACC1)), owned ? v.emoji : '🔒');
+        c.drawPath(_area(x0, y0, x1, y1, h), Paint()..color = g(const Color(0xFF0D47A1)));
+        c.drawPath(_area(x0 + 0.15, y0 + 0.15, x1 - 0.15, y1 - 0.15, h), Paint()..color = g(const Color(0xFF1565C0)));
+        final crab = TextPainter(text: TextSpan(text: owned ? '🦀' : '🔒', style: const TextStyle(fontSize: 22)), textDirection: TextDirection.ltr)..layout();
+        crab.paint(c, _iso(cx, cy, h + 4) - Offset(crab.width / 2, crab.height * 0.8));
+        roofTop = _iso(cx, cy, h + 30);
+        chimney = _iso(x1 - 0.6, y0 + 0.4, h + 2);
+        break;
+      case 'goyuhan':
+        // nhà Hanok Hàn Quốc: tường trắng khung gỗ, mái ngói xám cong, nền đá
+        const h = 24.0;
+        _box(c, x0 - 0.15, y0 - 0.15, x1 + 0.15, y1 + 0.15, 6, g(const Color(0xFFBDBDBD)), g(const Color(0xFF8D8D8D)), g(const Color(0xFF9E9E9E)));
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFFAF3E8)), z: 6);
+        for (var k = 0; k <= 4; k++) {
+          final p = _iso(x0 + (x1 - x0) * k / 4, y1, 6);
+          c.drawLine(p, p - const Offset(0, h), Paint()
+            ..color = g(const Color(0xFF6D4C41))
+            ..strokeWidth = 2.5);
+        }
+        _windows(c, x0, y0, x1, y1, 14, 26, g(const Color(0xFF6D4C41)), night);
+        _door(c, x0, x1, y1, h, g(const Color(0xFF5D4037)), g(const Color(0xFF8E1B1B)), owned ? v.emoji : '🔒', z: 6);
+        _hip(c, x0, y0, x1, y1, h + 6, 16, g(const Color(0xFF455A64)), over: 0.4, ridge: 0.15, curve: 6);
+        roofTop = _iso(cx, cy, h + 32);
+        chimney = _iso(x0 + 0.5, y0 + 0.3, h + 22);
+        break;
+      case 'binhdan':
+        // nhà sàn tre, mái lá dốc, chum nước, bếp củi
+        const h = 22.0, stilt = 10.0;
+        for (final p in [_iso(x0, y1), _iso(x1, y1), _iso(x1, y0), _iso(cx, y1), _iso(x1, cy)]) {
+          c.drawLine(p, p - const Offset(0, stilt), Paint()
+            ..color = g(const Color(0xFF6D4C1F))
+            ..strokeWidth = 3);
+        }
+        c.drawPath(_area(x0 - 0.1, y0 - 0.1, x1 + 0.1, y1 + 0.1, stilt), Paint()..color = g(const Color(0xFF8D6E3F)));
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFD9B77A)), z: stilt);
+        for (var k = 1; k < 8; k++) {
+          final p = _iso(x0 + (x1 - x0) * k / 8, y1, stilt);
+          c.drawLine(p, p - const Offset(0, h), Paint()
+            ..color = g(const Color(0x33000000))
+            ..strokeWidth = 1);
+        }
+        _windows(c, x0, y0, x1, y1, stilt + 7, stilt + 16, g(const Color(0xFF6D4C1F)), night);
+        _door(c, x0, x1, y1, h, g(const Color(0xFF5D4037)), g(const Color(0xFF558B2F)), owned ? v.emoji : '🔒', z: stilt);
+        // cầu thang lên sàn
+        c.drawPath(_pg([_iso(cx - 0.25, y1 + 0.6), _iso(cx + 0.25, y1 + 0.6), _iso(cx + 0.25, y1, stilt), _iso(cx - 0.25, y1, stilt)]), Paint()..color = g(const Color(0xFFA1887F)));
+        _hip(c, x0, y0, x1, y1, stilt + h, 26, g(const Color(0xFFC9A44E)), over: 0.45, ridge: 0.2);
+        final chum = _iso(x1 + 0.35, y0 + 0.4);
+        c.drawOval(Rect.fromCenter(center: chum - const Offset(0, 6), width: 12, height: 12), Paint()..color = g(const Color(0xFF795548)));
+        roofTop = _iso(cx, cy, stilt + h + 32);
+        chimney = _iso(x1 + 0.4, y1 - 0.3, 6);
+        break;
+      default:
+        const h = 28.0;
+        _walls(c, x0, y0, x1, y1, h, g(lk0.wall));
+        _windows(c, x0, y0, x1, y1, 9, 20, g(lk0.trim), night);
+        _door(c, x0, x1, y1, h, g(lk0.trim), g(lk0.awning), owned ? v.emoji : '🔒');
+        _gable(c, x0, y0, x1, y1, h, 20, g(lk0.trim), g(lk0.wall));
+        roofTop = _iso(cx, cy, h + 26);
+    }
+    _roofTop[l.key] = roofTop;
+    _chimney[l.key] = chimney;
+    if (!owned) c.drawPath(_area(l.x0, l.y0, l.x1, l.y1), Paint()..color = const Color(0x22FFFFFF));
   }
 
   void _table(Canvas c, double gx, double gy, _Look lk) {
@@ -715,7 +932,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         _label(c, _iso((l.x0 + l.x1) / 2, l.y0, 14) - const Offset(0, 6), '🌻 Vườn chung', Colors.white, const Color(0xFF2E7D32));
         continue;
       }
-      final top = _iso(l.x0, l.y0, 4 + 44 + 34);
+      final top = _roofTop[l.key] ?? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 70);
       final sig = l.key.startsWith('sig_') ? _sigFor(l.key) : null;
       if (vid == null) {
         final mine = l.key == 'sig_mine';
@@ -730,14 +947,14 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         // khói từ bếp
         for (var k = 0; k < 3; k++) {
           final ph = (t * 0.4 + k / 3 + l.x0 * 0.1) % 1.0;
-          final p = _iso(l.x0 + 1.4, l.y0 + 0.5, 4 + 44 + 4) - Offset(-sin(ph * 6) * 4, ph * 26);
+          final p = (_chimney[l.key] ?? top) - Offset(-sin(ph * 6) * 4, ph * 22);
           c.drawCircle(p, 3 + 5 * ph, Paint()..color = Color.fromRGBO(255, 255, 255, 0.6 * (1 - ph)));
         }
       }
       final name = sig != null ? '${v.emoji} ${v.name.split(' – ').first}' : (owned ? '${v.emoji} ${v.name}' : '🔒 ${v.name}');
       final bg = sig != null ? (sig.mine ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF)) : (owned ? Colors.white : const Color(0xFFEEEEEE));
       final fg = sig != null ? Colors.white : (owned ? const Color(0xFF221B3F) : const Color(0xFF6E6E80));
-      final lp = vid == 'truck' ? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 60) : top - const Offset(0, 10);
+      final lp = vid == 'truck' ? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 60) : top - const Offset(0, 4);
       _label(c, lp, name, bg, fg);
       if (sig != null) {
         _label(c, lp + const Offset(0, 20), '${'⭐' * sig.rank.clamp(1, 5)} • Quán của ${sig.owner}', Colors.white, const Color(0xFF221B3F), small: true);

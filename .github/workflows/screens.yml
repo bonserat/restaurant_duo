@@ -4,9 +4,9 @@ name: Screenshots
 on:
   workflow_dispatch:
     inputs:
-      venues:
-        description: 'Danh sách quán, cách nhau bằng dấu phẩy'
-        default: 'goyuhan,poseidon,binhdan,cafe'
+      pages:
+        description: 'Các trang cần chụp (chuỗi query, cách nhau bằng ;)'
+        default: 'demo=map;demo=room&v=goyuhan;demo=1&v=goyuhan&t=6'
 
 permissions:
   contents: write
@@ -32,7 +32,7 @@ jobs:
           mkdir -p shots
           (cd build/web && python3 -m http.server 8000 >/dev/null 2>&1 &)
           sleep 2
-          python3 tools/shoot.py "${{ github.event.inputs.venues }}"
+          python3 tools/shoot.py "${{ github.event.inputs.pages }}"
       - name: Đẩy ảnh lên nhánh screens
         run: |
           cd shots

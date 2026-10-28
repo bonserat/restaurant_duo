@@ -337,6 +337,21 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final p = await SharedPreferences.getInstance();
     // Chế độ thử nghiệm cho máy chụp màn hình tự động: ?demo=1&v=<quán>&t=<số bàn>
     final q = kIsWeb ? Uri.base.queryParameters : const <String, String>{};
+    if (q['demo'] == 'map' || q['demo'] == 'room') {
+      owner = kNguyen;
+      await loadData();
+      if (q['own'] != '0') owned.addAll(['cafe', 'bakery', 'chinese', 'mexican', 'truck', 'goyuhan']);
+      sig = q['own'] == '0' ? '' : 'goyuhan';
+      Sound.setEnabled(false);
+      if (mounted) setState(() => screen = 'menu');
+      if (q['demo'] == 'room') {
+        final v = q['v'] ?? 'goyuhan';
+        owned.add(v);
+        venueId = v;
+        WidgetsBinding.instance.addPostFrameCallback((_) => showRoomSheet(v));
+      }
+      return;
+    }
     if (q['demo'] == '1') {
       owner = kNguyen;
       await loadData();
@@ -2054,6 +2069,70 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     });
   }
 
+  /// Xem trước phòng chơi bên trong quán (không có khách)
+  Widget roomPreview(String id, int nTables) => ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          height: 300,
+          child: IgnorePointer(
+            child: IsoRoom(
+              tables: List.generate(nTables, (_) => TableS()),
+              stations: List.generate(2 + lvl('stations'), (_) => Station()),
+              counter: const [],
+              selDishId: null,
+              activeStation: -1,
+              hasOrders: false,
+              venueId: id,
+              style: style,
+              light: light,
+              waiterLook: castLook(waiterName, 'waiter'),
+              chefLook: castLook(chefName, 'chef'),
+              waiterName: waiterName,
+              chefName: chefName,
+              tablePos: tablePos,
+              decos: decos,
+              pets: pets.toList(),
+              onTable: (_) {},
+              onDish: (_) {},
+              onStation: (_) {},
+              onHeat: (_, __) {},
+              onIncident: (_) {},
+              onPet: (_) {},
+            ),
+          ),
+        ),
+      );
+
+  /// Chạm vào quán trên bản đồ: hiện phòng chơi + nút mở cửa
+  void showRoomSheet(String id) {
+    final v = venueById(id);
+    showGameSheet(context, title: v.name, emoji: v.emoji, builder: (ctx, setS) {
+      final n = min(4 + lvl('tables'), v.maxTables);
+      final nRec = v.recipes.where((r) => recipes.contains(r.id)).length;
+      return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
+        roomPreview(id, n),
+        const SizedBox(height: 10),
+        Text('🪑 $n bàn  •  📖 $nRec món  •  🎯 mục tiêu $goal💰', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        crowdRow(),
+        const SizedBox(height: 10),
+        GButton('Mở cửa ngày $day', emoji: '▶', onTap: () {
+          Navigator.pop(ctx);
+          mode = 'local';
+          myRole = 'both';
+          startDay();
+        }),
+        if (isSigVenue(id) && id == sig) ...[
+          const SizedBox(height: 8),
+          SoftButton('Quán ${'⭐' * sigRank} • nâng hạng quán', emoji: '🏅', onTap: () {
+            Navigator.pop(ctx);
+            showSigManage();
+          }),
+        ],
+      ]);
+    });
+  }
+
   void onVenueTap(String id) {
     if (id == 'garden') {
       Sound.sfx('tap');
@@ -2061,15 +2140,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
     if (id == 'sig_mine') return openSigPicker();
     if (id == 'sig_partner') return showPartnerSig();
-    if (isSigVenue(id) && id == sig && id == venueId) return showSigManage();
     final v = venueById(id);
     if (owned.contains(id)) {
-      if (id != venueId) Sound.sfx('door', vol: 0.6);
+      Sound.sfx('door', vol: 0.6);
       setState(() {
         venueId = id;
         activeStation = -1;
       });
       save();
+      showRoomSheet(id);
       return;
     }
     Sound.sfx('tap');
@@ -2077,6 +2156,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     showGameSheet(context, title: v.name, emoji: v.emoji, builder: (ctx, setS) {
       final afford = money >= v.cost;
       return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 4, 20, 20), children: [
+        roomPreview(v.id, 4),
+        const SizedBox(height: 10),
         Text('Tối đa ${v.maxTables} bàn • ${v.recipes.length} món • khách đến $busy', style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w600)),
         const SizedBox(height: 12),
         Wrap(spacing: 8, runSpacing: 8, children: [
