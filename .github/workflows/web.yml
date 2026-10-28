@@ -39,7 +39,13 @@ jobs:
       - run: flutter pub get
 
       - name: Build web
-        run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+        run: |
+          set -o pipefail
+          flutter build web --release --base-href "/${{ github.event.repository.name }}/" 2>&1 | tee build.log || {
+            # đưa lỗi biên dịch lên thành chú thích để xem nhanh ở trang Actions
+            grep -E "Error|error:|\.dart:[0-9]+" build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - uses: actions/upload-pages-artifact@v3
         with:
