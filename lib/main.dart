@@ -188,7 +188,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   String get lightNow => remote ? hostLight : light;
   bool incOn(String type) => incidents.any((x) => x.type == type);
   bool get sweetVenue => seasonName(venueId) == 'Đường';
-  String tasteWord(String taste) => taste == 'Đậm' ? (sweetVenue ? 'ngọt gắt' : 'mặn') : taste.toLowerCase();
+  String tasteWord(String taste, [String? recipeId]) =>
+      taste == 'Đậm' ? ((recipeId == null ? sweetVenue : isSweet(recipeId)) ? 'ngọt gắt' : 'mặn') : taste.toLowerCase();
+
+  /// Món đang được chọn để nấu (để biết cần đường hay muối)
+  String? get focusRecipeId {
+    final i = myStation;
+    if (i >= 0 && i < stations.length && stations[i].t != null) return stations[i].t!.recipe.id;
+    for (final s in stations) {
+      if (s.t != null) return s.t!.recipe.id;
+    }
+    return null;
+  }
   /// Khách trong chế độ hợp tác: chỉ hiển thị, mọi thao tác gửi lên chủ phòng
   bool get remote => mode == 'guest' && gameType == 'coop';
   bool get race => mode != 'local' && gameType == 'race';
@@ -212,6 +223,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     Future.delayed(const Duration(seconds: 2), preloadSounds);
     Crowd.fetchWeather().then((_) {
       if (mounted) setState(() {});
+    });
+    // đồng hồ thật: cập nhật mỗi 30 giây (trời sáng/tối, giờ trên thanh trên cùng)
+    Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && screen != 'play') setState(() {});
     });
   }
 
@@ -1305,7 +1320,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           special = '📰 Cô Lan viết bài khen quán! +$bonus💰';
         } else {
           bonus = -min(30, money);
-          special = '📰 Cô Lan chê món ${c.taste == 'Vừa' ? 'chưa ngon' : tasteWord(c.taste)} trên blog… ${bonus}💰';
+          special = '📰 Cô Lan chê món ${c.taste == 'Vừa' ? 'chưa ngon' : tasteWord(c.taste, c.recipe.id)} trên blog… ${bonus}💰';
         }
         break;
       case 'hunter':
@@ -1334,7 +1349,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     } else if (c.quality < 0.6) {
       say('😡 Món ăn dở quá!');
     } else if (c.taste == 'Nhạt' || c.taste == 'Đậm') {
-      say('😕 Món hơi ${tasteWord(c.taste)}… +$gain$luck');
+      say('😕 Món hơi ${tasteWord(c.taste, c.recipe.id)}… +$gain$luck');
     } else if (frac < 0.35) {
       say('😤 Phục vụ chậm quá!');
     } else if (clean < 0.6) {
@@ -1653,6 +1668,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               Wrap(spacing: 6, runSpacing: 4, children: [
                 StatPill('💰', '$money'),
                 StatPill('📅', 'Ngày $day'),
+                StatPill(realDayEmoji(), realDayLabel()),
               ]),
             ]),
           ),
@@ -1731,7 +1747,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             builder: (ctx, cons) => SingleChildScrollView(
               child: SizedBox(
                 height: max(cons.maxHeight, 760),
-                child: TownMap(owned: owned, current: venueId, night: style == 'night', onTap: onVenueTap, sigs: sigSpots()),
+                child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots()),
               ),
             ),
           ),
@@ -2380,7 +2396,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void showGuide() {
     final pauseIt = screen == 'play' && mode == 'local' && !paused;
     if (pauseIt) setState(() => paused = true);
-    final season = seasonName(venueId).toLowerCase();
+    final season = 'muối (món mặn) hoặc đường (món ngọt)';
     showGameSheet(context, title: 'Cách chơi', emoji: '📖', builder: (ctx, setS) {
       return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
         _guideCard('👨‍🍳', 'Đầu bếp • $chefName', [
@@ -3022,7 +3038,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ],
       ]);
     }
-    final sweet = sweetVenue;
+    final sweet = isSweet(r.id);
     final taste = s.taste == 'Vừa' ? '😋 Vừa' : (s.taste == 'Nhạt' ? '😐 Nhạt' : (sweet ? '😖 Ngọt gắt' : '😖 Mặn'));
     return box(Column(mainAxisSize: MainAxisSize.min, children: [
       Row(children: [
@@ -3041,7 +3057,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(color: const Color(0xFFE7F1FF), borderRadius: BorderRadius.circular(12)),
-              child: Text('${seasonEmoji(venueId)} Nêm ${seasonName(venueId).toLowerCase()}', style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.sky)),
+              child: Text('${seasonEmojiFor(r.id, venueId)} Nêm ${seasonNameFor(r.id, venueId).toLowerCase()}', style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.sky)),
             ),
           ),
           const SizedBox(width: 10),
@@ -3148,7 +3164,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget ingredientShelf({bool compact = false}) {
     final items = <Widget>[
       for (final ing in shelfNow) _shelfItem(ing.id, ing.emoji, ing.cut > 0 ? '${ing.name} 🔪' : ing.name, compact),
-      _shelfItem('salt', seasonEmoji(venueId), seasonName(venueId), compact, special: true),
+      _shelfItem('salt', seasonEmojiFor(focusRecipeId, venueId), seasonNameFor(focusRecipeId, venueId), compact, special: true),
     ];
     return Container(
       width: double.infinity,

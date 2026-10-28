@@ -270,6 +270,43 @@ const gWeathers = [
 String seasonName(String venueId) => (venueId == 'cafe' || venueId == 'bakery') ? 'Đường' : 'Muối';
 String seasonEmoji(String venueId) => (venueId == 'cafe' || venueId == 'bakery') ? '🍬' : '🧂';
 
+/// Món ngọt (đồ uống, bánh, tráng miệng) nêm bằng đường; còn lại nêm muối
+const _sweetRecipes = {
+  'cf_den', 'cf_sua', 'cf_da', 'tra_dau', 'sinh_to', //
+  'banh_mi', 'cookie', 'cupcake', 'cheesecake', //
+  'r_melon', 'r_mango', 'r_dragon',
+};
+bool isSweet(String recipeId) => _sweetRecipes.contains(recipeId);
+
+/// Gia vị theo món đang nấu (chưa có món thì theo loại quán)
+String seasonNameFor(String? recipeId, String venueId) => recipeId == null ? seasonName(venueId) : (isSweet(recipeId) ? 'Đường' : 'Muối');
+String seasonEmojiFor(String? recipeId, String venueId) => recipeId == null ? seasonEmoji(venueId) : (isSweet(recipeId) ? '🍬' : '🧂');
+
+// =====================================================================
+//  GIỜ THẬT: ngày / hoàng hôn / đêm
+// =====================================================================
+/// 0 = ban ngày (6h–17h), 1 = bình minh/hoàng hôn (5h–6h, 17h–18h30), 2 = ban đêm
+int realDayPhase([DateTime? now]) {
+  final d = now ?? DateTime.now();
+  final x = d.hour + d.minute / 60;
+  if (x >= 6 && x < 17) return 0;
+  if ((x >= 17 && x < 18.5) || (x >= 5 && x < 6)) return 1;
+  return 2;
+}
+
+String realDayLabel([DateTime? now]) {
+  final d = now ?? DateTime.now();
+  final h = d.hour;
+  final part = h < 5 ? 'Đêm khuya' : (h < 11 ? 'Buổi sáng' : (h < 13 ? 'Buổi trưa' : (h < 17 ? 'Buổi chiều' : (h < 19 ? 'Chiều tối' : (h < 22 ? 'Buổi tối' : 'Đêm khuya')))));
+  final hh = d.hour.toString().padLeft(2, '0'), mm = d.minute.toString().padLeft(2, '0');
+  return '$hh:$mm • $part';
+}
+
+String realDayEmoji([DateTime? now]) {
+  final p = realDayPhase(now);
+  return p == 0 ? '☀️' : (p == 1 ? '🌇' : '🌙');
+}
+
 // =====================================================================
 //  KHÁCH ĐẶC BIỆT (NPC) – mỗi người có tính cách, sở thích và câu chuyện
 // =====================================================================

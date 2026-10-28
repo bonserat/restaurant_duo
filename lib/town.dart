@@ -262,8 +262,15 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       _cloud(c, Offset(cx, h * (0.06 + 0.1 * k)), unit * (0.07 + 0.02 * k));
     }
 
-    if (widget.night) {
-      c.drawRect(bg, Paint()..color = const Color(0x55101040));
+    // trời theo giờ thật: hoàng hôn ngả cam, đêm tối xuống và các quán sáng đèn
+    final phase = realDayPhase();
+    if (widget.night || phase == 2) {
+      c.drawRect(bg, Paint()..color = const Color(0x66101040));
+      for (final e in _hit.entries) {
+        c.drawCircle(e.value.center, e.value.width * 0.45, Paint()..color = const Color(0x22FFE082));
+      }
+    } else if (phase == 1) {
+      c.drawRect(bg, Paint()..color = const Color(0x33FF7043));
     }
   }
 

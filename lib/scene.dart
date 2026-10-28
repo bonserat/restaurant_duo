@@ -1804,7 +1804,11 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     c.clipPath(view);
     final all = Rect.fromLTRB(win.left, win.top, dr.right, dr.bottom);
     final List<Color> sky;
-    switch (style) {
+    final phase = realDayPhase(); // trời ngoài cửa sổ theo giờ thật
+    switch (phase == 2 ? 'night' : (phase == 1 ? 'dusk' : style)) {
+      case 'dusk':
+        sky = const [Color(0xFFFF8A65), Color(0xFFFFD180)];
+        break;
       case 'night':
         sky = const [Color(0xFF1A237E), Color(0xFF3949AB)];
         break;
@@ -1821,7 +1825,7 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
         sky = const [Color(0xFF90CAF9), Color(0xFFE3F2FD)];
     }
     c.drawRect(all, Paint()..shader = _vg(sky[0], sky[1]).createShader(all));
-    final night = style == 'night';
+    final night = style == 'night' || phase == 2;
     // nhà phố phía xa
     final rr = Random(3);
     var bx = all.left - 6;
@@ -2759,7 +2763,8 @@ class _KitchenSceneState extends State<KitchenScene> with SingleTickerProviderSt
       final sx = mb.left + mb.width * (s.salt / maxSalt).clamp(0.0, 1.0).toDouble();
       c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(sx, mb.center.dy), width: 4, height: mb.height + 6), const Radius.circular(2)), Paint()..color = const Color(0xFF3E2723));
       final shaking = t - _shakeAt[i] < 0.3;
-      _emoji(c, widget.seasonEmoji, Offset(mb.left - fs * 0.8, mb.center.dy - (shaking ? sin(t * 40) * 3 : 0)), fs * 1.0);
+      final se = s.t != null ? seasonEmojiFor(s.t!.recipe.id, widget.venueId) : widget.seasonEmoji; // món ngọt → đường, món mặn → muối
+      _emoji(c, se, Offset(mb.left - fs * 0.8, mb.center.dy - (shaking ? sin(t * 40) * 3 : 0)), fs * 1.0);
     }
 
     // Trạng thái trên cửa lò

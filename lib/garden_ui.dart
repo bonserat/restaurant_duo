@@ -707,6 +707,18 @@ class GardenPainter extends CustomPainter {
     if (weather == 'hot') {
       c.drawRect(Offset.zero & size, Paint()..color = const Color(0x14FF9800));
     }
+    // giờ thật: hoàng hôn / đêm
+    final phase = realDayPhase();
+    if (phase == 2) {
+      c.drawRect(Offset.zero & size, Paint()..color = const Color(0x77101040));
+      for (var k = 0; k < 14; k++) {
+        final x = (k * 71.3) % w, y = (k * 37.7) % (skyH * 0.9);
+        c.drawCircle(Offset(x, y), 1.2 + (k % 3) * 0.4, Paint()..color = Color.fromARGB((150 + 100 * sin(t * 2 + k)).clamp(0, 255).round(), 255, 255, 230));
+      }
+      c.drawCircle(Offset(w * 0.12, skyH * 0.45), skyH * 0.25, Paint()..color = const Color(0xFFFFF8E1)); // trăng
+    } else if (phase == 1) {
+      c.drawRect(Offset.zero & size, Paint()..color = const Color(0x33FF7043));
+    }
   }
 
   @override
