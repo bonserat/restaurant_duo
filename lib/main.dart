@@ -2644,9 +2644,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final Widget col = Column(children: [
       hud(race ? '🏁 THI ĐẤU' : (mode == 'local' ? '🍽️ $chefName & $waiterName' : '🤝 $chefName & $waiterName')),
       if (race) oppBar(),
-      Expanded(flex: 5, child: kitchenBody(compact: true, tools: false)),
+      ticketRail(compact: true),
+      recipeBar(),
+      cookBar(),
+      // bếp + sảnh chung một căn phòng nhìn nghiêng
+      Expanded(child: isoRoom()),
       toolBar(null),
-      Expanded(flex: 6, child: diningBody(tools: false)),
+      ingredientShelf(compact: true),
     ]);
     final at = goalBurstAt;
     final burst = at != null && DateTime.now().difference(at).inMilliseconds < 3500;
@@ -2727,6 +2731,75 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         onDrop: (i, id) => doIngredient(id, i),
         island: island,
       );
+
+  /// Màn chơi 2.5D: bếp và sảnh chung một căn phòng (mỗi quán một sơ đồ riêng)
+  Widget isoRoom() => IsoRoom(
+        tables: tables,
+        stations: stations,
+        counter: counter,
+        selDishId: selDishId,
+        activeStation: myStation,
+        hasOrders: queue.isNotEmpty,
+        venueId: venueId,
+        style: styleNow,
+        light: lightNow,
+        waiterLook: castLook(waiterName, 'waiter'),
+        chefLook: castLook(chefName, 'chef'),
+        waiterName: waiterName,
+        chefName: chefName,
+        tablePos: tablePosNow,
+        decos: decosNow,
+        pets: petsNow,
+        incidents: incidents,
+        outside: outsideQ,
+        tool: tool,
+        burnTime: burnTime,
+        onTable: doTable,
+        onDish: onDish,
+        onStation: doStation,
+        onHeat: doHeat,
+        onIncident: doIncident,
+        onPet: doPet,
+      );
+
+  /// Thanh chỉnh lửa + độ nêm của bếp đang chọn (chỉ hiện khi đang nấu)
+  Widget cookBar() {
+    var i = myStation;
+    if (i < 0 || i >= stations.length || !stations[i].cooking) {
+      i = stations.indexWhere((s) => s.cooking);
+    }
+    if (i < 0) return const SizedBox.shrink();
+    final s = stations[i];
+    final rid = s.t?.recipe.id;
+    const maxSalt = 5.0;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+      decoration: const BoxDecoration(color: Pal.surface, border: Border(bottom: BorderSide(color: Pal.line))),
+      child: Row(children: [
+        Text('Bếp ${i + 1}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Pal.text)),
+        const SizedBox(width: 6),
+        _roundBtn('−', Pal.sky, () => doHeat(i, -0.2), size: 30),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s.heat < 0.3 ? '🧊 Lửa nhỏ' : (s.heat <= 0.75 ? '🔥 Lửa vừa' : '🌋 Lửa to!'),
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: s.heat > 0.75 ? Pal.danger : Pal.text)),
+            _gauge(s.heat, 0.3, 0.75, marker: s.heat > 0.75 ? Pal.danger : Pal.ink),
+          ]),
+        ),
+        const SizedBox(width: 4),
+        _roundBtn('+', Pal.coral, () => doHeat(i, 0.2), size: 30),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${seasonEmojiFor(rid, venueId)} ${seasonNameFor(rid, venueId)}: ${s.taste == 'Vừa' ? 'vừa miệng' : (s.taste == 'Nhạt' ? 'còn nhạt' : 'quá tay')}',
+                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Pal.text)),
+            _gauge(s.salt / maxSalt, (s.saltTarget - s.tol) / maxSalt, (s.saltTarget + s.tol) / maxSalt),
+          ]),
+        ),
+      ]),
+    );
+  }
 
   Widget kitchenBody({bool compact = false, bool tools = true}) => Column(children: [
         ticketRail(compact: compact),
