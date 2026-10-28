@@ -178,7 +178,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         if (!_placed && vw > 0 && vh > 0) {
           _placed = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            final s = max(minScale, min(1.0, vw / 640));
+            final s = max(minScale, 0.95); // mở ra đủ gần để thấy rõ từng toà nhà
             final f = _focus();
             final dx = (vw / 2 - f.dx * s).clamp(vw - kTownSize.width * s, 0.0).toDouble();
             final dy = (vh / 2 - f.dy * s).clamp(vh - kTownSize.height * s, 0.0).toDouble();
