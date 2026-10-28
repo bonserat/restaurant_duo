@@ -19,6 +19,7 @@ import 'garden_store.dart';
 import 'garden_ui.dart';
 import 'warmup.dart';
 import 'crowd.dart';
+import 'auto_biz.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -79,10 +80,37 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   int sigRank = 1; // hạng quán 1..5 sao
   Map<String, int> ads = {}; // quảng cáo: id → chạy tới (trước) ngày này
   double crowdMul = 1; // hệ số khách của ngày đang chơi
+  // ---- Nhà hàng Trung: buffet tự chọn. Khách tự lấy món ở quầy, hết món thì đầu bếp nấu thêm ----
+  bool get buffet => venue.id == 'chinese';
+  List<String> trayIds = [];
+  List<int> trayQty = [];
+  List<double> trayQ = [];
+  static const trayMax = 8;
+  String tableLabel(int tb) => tb < 0 ? 'Buffet' : 'Bàn ${tb + 1}';
   List<CrowdFactor> crowdFactors = [];
   String get partnerName => owner == kNgocAnh ? kNguyen : kNgocAnh;
   bool adOn(String id) => day < (ads[id] ?? 0);
   int get sigUpCost => 500 * sigRank;
+  Biz biz = Biz(); // nhà hàng riêng vận hành tự động
+  int cheerDay = 0; // ngày đã cổ vũ quán người kia
+
+  double get _sigAvgPrice {
+    if (sig.isEmpty) return 100;
+    final rs = venueById(sig).recipes.where((r) => recipes.contains(r.id)).toList();
+    if (rs.isEmpty) return 100;
+    return rs.map((r) => r.price).reduce((a, b) => a + b) / rs.length;
+  }
+
+  /// Tính tiền/hàng/sự kiện của nhà hàng tự động tới hiện tại
+  void bizRun() {
+    if (sig.isEmpty || _raceBk != null || remote) return;
+    final gifts = <(int, int)>[
+      for (final e in Garden.instance.events)
+        if ((e.a == 'cheer' || e.a == 'gift') && e.d['to'] == owner) (e.at, e.a == 'gift' ? ((e.d['m'] as num?)?.toInt() ?? 0) : 0),
+    ];
+    final crowd = Crowd.total(Crowd.factors(venueId: sig, sig: true, sigRank: sigRank, ads: const {}, day: day));
+    biz.run(DateTime.now().millisecondsSinceEpoch, owner: owner, rank: sigRank, avgPrice: _sigAvgPrice, crowd: crowd, gifts: gifts);
+  }
   int tickN = 0;
   int hostDecor = 0; // cấp trang trí của chủ phòng (để khách thấy đúng cây cảnh)
   String hostStyle = 'classic';
@@ -227,7 +255,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     });
     // đồng hồ thật: cập nhật mỗi 30 giây (trời sáng/tối, giờ trên thanh trên cùng)
     Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted && screen != 'play') setState(() {});
+      if (mounted && screen != 'play') {
+        bizRun();
+        setState(() {});
+      }
     });
   }
 
@@ -331,6 +362,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     sig = '';
     sigRank = 1;
     ads = {};
+    biz = Biz();
+    cheerDay = 0;
   }
 
   Future<void> load() async {
@@ -415,6 +448,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       sig = m['sig'] ?? '';
       sigRank = m['sigRank'] ?? 1;
       ads = Map<String, int>.from(m['ads'] ?? {});
+      biz = Biz.fromJson(m['biz']);
+      cheerDay = m['cheer'] ?? 0;
     }
   }
 
@@ -438,6 +473,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'sig': sig,
         'sigRank': sigRank,
         'ads': ads,
+        'biz': biz.toJson(),
+        'cheer': cheerDay,
       };
 
   // ---------- Thi đấu công bằng: cả 2 chơi trong cùng 1 quán (của chủ phòng) ----------
@@ -568,6 +605,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'ct': counter.map((e) => e.toJson()).toList(),
         'oq': outsideQ.map((e) => e.toJson()).toList(),
         'cm': r2(crowdMul),
+        'tri': trayIds,
+        'trq': trayQty,
         'act': activeStation,
         'msg': msg,
         'mt': r2(msgT),
@@ -605,6 +644,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       counter = lst('ct', Dish.fromJson);
       outsideQ = m['oq'] == null ? [] : lst('oq', OutsideGuest.fromJson);
       crowdMul = (m['cm'] as num?)?.toDouble() ?? 1;
+      trayIds = List<String>.from((m['tri'] as List?) ?? const []);
+      trayQty = [for (final x in (m['trq'] as List?) ?? const []) (x as num).toInt()];
+      trayQ = List.filled(trayIds.length, 0.8);
       activeStation = (m['act'] as num).toInt();
       msg = m['msg'] ?? '';
       msgT = (m['mt'] as num).toDouble();
@@ -898,6 +940,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       rnd = Random();
     }
     tables = List.generate(min(4 + lvl('tables'), venue.maxTables), (_) => TableS());
+    if (buffet) {
+      trayIds = venue.recipes.where((r) => recipes.contains(r.id)).map((r) => r.id).take(4).toList();
+      trayQty = List.filled(trayIds.length, 3);
+      trayQ = List.filled(trayIds.length, 0.8);
+    } else {
+      trayIds = [];
+      trayQty = [];
+      trayQ = [];
+    }
     stations = List.generate(2 + lvl('stations'), (_) => Station());
     queue = [];
     counter = [];
@@ -978,6 +1029,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       npc = npcTypes.firstWhere((n) => n.id == 'vip', orElse: () => npcTypes.first); // quảng cáo tivi kéo khách VIP
     }
     var r = avail[rnd.nextInt(avail.length)];
+    if (buffet && trayIds.isNotEmpty) r = recipeById(trayIds[rnd.nextInt(trayIds.length)]);
     if (npc != null) {
       final sorted = [...avail]..sort((a, b) => a.price.compareTo(b.price));
       if (npc.id == 'vip') r = sorted.last; // VIP gọi món đắt nhất
@@ -1101,12 +1153,36 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       }
     }
 
+    if (buffet) {
+      for (final t in tables) {
+        final c = t.c;
+        if (c != null && c.st == 0) {
+          final k = trayIds.indexOf(c.recipe.id);
+          if (k >= 0 && trayQty[k] > 0) {
+            trayQty[k]--;
+            c.st = 2;
+            c.quality = trayQ[k];
+            c.taste = 'Vừa';
+            c.eat = 4;
+          }
+        }
+        if (t.dirty && t.dirtyT > 3) t.dirty = false; // nhân viên buffet tự dọn
+      }
+      for (var k = 0; k < trayIds.length; k++) {
+        final want = -1 - k;
+        if (trayQty[k] <= 2 && !queue.any((q) => q.table == want) && !stations.any((st) => st.t?.table == want)) {
+          queue.add(Ticket(++ticketSeq, want, recipeById(trayIds[k])));
+          if (trayQty[k] == 0) say('🍱 Quầy buffet hết ${recipeById(trayIds[k]).name}! Nấu thêm ngay');
+        }
+      }
+    }
+
     // Bếp: canh lửa, nấu, chờ lấy món
     final fireSt = incidents.where((x) => x.type == 'fire').map((x) => x.target).toSet();
     for (var si = 0; si < stations.length; si++) {
       final s = stations[si];
       if (s.t == null) continue;
-      if (!tables.any((t) => t.c?.ticketId == s.t!.id)) {
+      if (s.t!.table >= 0 && !tables.any((t) => t.c?.ticketId == s.t!.id)) {
         s.clear();
         continue;
       }
@@ -1410,6 +1486,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return;
     }
     if (c == null) return;
+    if (c.st == 0 && buffet) return; // buffet: khách tự lấy món
     if (c.st == 0) {
       c.st = 1;
       c.ticketId = ++ticketSeq;
@@ -1449,12 +1526,23 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       final tk = queue.removeAt(0);
       s.t = tk;
       s.need = tk.recipe.cook * (1 - 0.15 * lvl('stove'));
-      final cu = tk.table < tables.length ? tables[tk.table].c : null;
+      final cu = tk.table >= 0 && tk.table < tables.length ? tables[tk.table].c : null;
       s.saltTarget = tk.recipe.salt + (cu?.saltPref ?? 0); // khẩu vị riêng của khách
       s.tol = 0.9 - 0.35 * ease;
       s.heat = 0.5;
     } else if (s.chopping) {
       chop(s);
+    } else if (s.done && s.t!.table < 0) {
+      // món buffet: đổ thẳng ra khay
+      final k = -1 - s.t!.table;
+      if (k < trayQty.length) {
+        final q = s.burnt ? min(s.quality, 0.35) : s.quality;
+        final old = trayQty[k];
+        trayQty[k] = min(trayMax, old + 5);
+        trayQ[k] = old == 0 ? q : (trayQ[k] * old + q * 5) / (old + 5);
+        say('🍱 Đã châm thêm ${s.t!.recipe.name} ra quầy buffet');
+      }
+      s.clear();
     } else if (s.done) {
       if (counter.length >= 6) {
         say('Quầy đầy rồi!');
@@ -2003,6 +2091,152 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _meter(String label, double v, Color col, String right) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(children: [
+          SizedBox(width: 96, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: Pal.text))),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(value: v.clamp(0.0, 1.0).toDouble(), minHeight: 9, backgroundColor: const Color(0xFFF0EAE0), color: col),
+            ),
+          ),
+          SizedBox(width: 62, child: Text(right, textAlign: TextAlign.right, style: const TextStyle(color: Pal.muted, fontSize: 11.5, fontWeight: FontWeight.w700))),
+        ]),
+      );
+
+  /// Phần "Kinh doanh tự động" trong bảng quản lý nhà hàng riêng
+  List<Widget> bizPanel(StateSetter setS) {
+    bizRun();
+    final now = DateTime.now();
+    final b = biz;
+    void done(String msg) {
+      save();
+      setS(() {});
+      setState(() {});
+      if (msg.isNotEmpty) snack(msg);
+    }
+
+    final ev = Biz.eventOf(owner, now);
+    final evData = ev == null ? null : bizEvents[ev.$1];
+    final evStarted = ev != null && now.hour + now.minute / 60 >= ev.$2;
+    final dk = Biz.dayKey(now);
+    final restock = b.restockCost(_sigAvgPrice, now, owner);
+    final open = now.hour >= 8 && now.hour < 22;
+    return [
+      const SectionTitle('🏪 Kinh doanh tự động', sub: 'Thuê nhân viên, quán tự mở cửa 8h–22h kể cả khi bạn tắt game'),
+      if (!b.hired)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text('Cần ít nhất 1 đầu bếp và 1 phục vụ để quán tự chạy.', style: TextStyle(color: Pal.coral, fontWeight: FontWeight.w700)),
+        ),
+      AppCard(
+        child: Column(children: [
+          Row(children: [
+            Text(b.hired ? (open ? '🟢 Đang mở cửa' : '🌙 Đã đóng cửa (mở 8h–22h)') : '⚪ Chưa có nhân viên',
+                style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.text)),
+            const Spacer(),
+            Text('💰 ${b.cash.round()} / ${b.cashCap.round()}', style: TextStyle(fontWeight: FontWeight.w900, color: b.cash < 0 ? Pal.danger : Pal.gold)),
+          ]),
+          const SizedBox(height: 8),
+          _meter('😊 Tinh thần', b.morale / 100, b.morale < 30 ? Pal.danger : Pal.mint, '${b.morale.round()}%'),
+          _meter('🧽 Vệ sinh', b.clean / 100, b.clean < 50 ? Pal.danger : Pal.sky, '${b.clean.round()}%'),
+          _meter('📦 Hàng hoá', b.stock / 40, b.stock < 5 ? Pal.danger : Pal.gold, '${b.stock.round()} phần'),
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            SoftButton('Thu tiền', emoji: '💰', onTap: b.cash <= 0
+                ? null
+                : () {
+                    final m = b.cash.round();
+                    money += m;
+                    b.cash = 0;
+                    Sound.sfx('coin');
+                    done('💰 Thu về $m💰');
+                  }),
+            SoftButton('Nhập hàng −$restock', emoji: '📦', onTap: () {
+              if (!pay(restock)) return;
+              b.stock += 20;
+              done('📦 Đã nhập 20 phần hàng');
+            }),
+            SoftButton('Thưởng −100', emoji: '🎁', onTap: () {
+              if (!pay(100)) return;
+              b.morale = min(100.0, b.morale + 25);
+              done('🎁 Nhân viên vui hẳn lên!');
+            }),
+            SoftButton('Tổng vệ sinh −60', emoji: '🧽', onTap: () {
+              if (!pay(60)) return;
+              b.clean = 100;
+              done('🧽 Quán sạch bong');
+            }),
+          ]),
+        ]),
+      ),
+      if (evData != null) ...[
+        const SizedBox(height: 8),
+        AppCard(
+          color: const Color(0xFFFFF8E1),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${evData.$2} Hôm nay: ${evData.$3} (${ev!.$2.floor()}h)', style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+            Text(evData.$4, style: const TextStyle(color: Pal.muted, fontSize: 12.5)),
+            if (evData.$1 == 'raise' && evStarted && b.decided != dk) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Expanded(
+                  child: SoftButton('Đồng ý +10%', emoji: '✅', onTap: () {
+                    b.decided = dk;
+                    b.wageMul *= 1.1;
+                    b.morale = min(100.0, b.morale + 20);
+                    done('Nhân viên rất vui vì được tăng lương');
+                  }),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: SoftButton('Từ chối', emoji: '✋', onTap: () {
+                    b.decided = dk;
+                    b.morale = max(0.0, b.morale - 15);
+                    done('Nhân viên hơi buồn…');
+                  }),
+                ),
+              ]),
+            ],
+          ]),
+        ),
+      ],
+      const SizedBox(height: 8),
+      for (final st in staffTypes)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: AppCard(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(children: [
+              Text(st.$2, style: const TextStyle(fontSize: 26)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${st.$3} • cấp ${b.lv(st.$1)}/${st.$6}', style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+                  Text('${st.$7} • lương ${st.$5}💰/giờ mỗi cấp', style: const TextStyle(color: Pal.muted, fontSize: 11.5)),
+                ]),
+              ),
+              if (b.lv(st.$1) < st.$6)
+                PriceButton(st.$4 * (b.lv(st.$1) + 1), afford: money >= st.$4 * (b.lv(st.$1) + 1), onTap: () {
+                  if (!pay(st.$4 * (b.lv(st.$1) + 1))) return;
+                  b.staff[st.$1] = b.lv(st.$1) + 1;
+                  if (b.last == 0) b.last = DateTime.now().millisecondsSinceEpoch;
+                  Sound.sfx('coin');
+                  done('${st.$2} Đã thuê ${st.$3.toLowerCase()} cấp ${b.lv(st.$1)}');
+                })
+              else
+                const Tag('Tối đa'),
+            ]),
+          ),
+        ),
+      if (b.log.isNotEmpty) ...[
+        const SectionTitle('📒 Nhật ký quán'),
+        for (final l in b.log.take(8)) Padding(padding: const EdgeInsets.only(bottom: 3), child: Text(l, style: const TextStyle(color: Pal.muted, fontSize: 12))),
+      ],
+    ];
+  }
+
   /// Quản lý nhà hàng riêng: nâng hạng, quảng cáo
   void showSigManage() {
     Sound.sfx('tap');
@@ -2039,6 +2273,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           Navigator.pop(ctx);
           showCrowd();
         }),
+        ...bizPanel(setS),
       ]);
     });
   }
@@ -2065,6 +2300,31 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           'Muốn cùng làm ở quán này: để $partnerName chọn quán này, vào 👥 Chơi đôi trước (làm chủ phòng) và chọn Hợp tác hoặc Thi đấu, rồi bạn vào sau.',
           style: const TextStyle(color: Pal.muted, fontSize: 12.5),
         ),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(
+            child: SoftButton(cheerDay == Biz.dayKey(DateTime.now()) ? 'Đã cổ vũ hôm nay' : 'Cổ vũ nhân viên', emoji: '📣',
+                onTap: cheerDay == Biz.dayKey(DateTime.now())
+                    ? null
+                    : () {
+                        cheerDay = Biz.dayKey(DateTime.now());
+                        Garden.instance.act('cheer', {'to': partnerName});
+                        save();
+                        setS(() {});
+                        snack('📣 Đã cổ vũ quán của $partnerName: nhân viên bên đó vui hơn');
+                      }),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: SoftButton('Tặng 100💰', emoji: '🎁', onTap: () {
+              if (!pay(100)) return;
+              Garden.instance.act('gift', {'to': partnerName, 'm': 100});
+              save();
+              setState(() {});
+              snack('🎁 Đã gửi 100💰 vào két quán của $partnerName');
+            }),
+          ),
+        ]),
       ]);
     });
   }
@@ -2861,6 +3121,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         onHeat: doHeat,
         onIncident: doIncident,
         onPet: doPet,
+        buffet: buffet,
+        trays: [for (var k = 0; k < trayIds.length; k++) (trayIds[k], trayQty[k])],
+        chef2Look: castLook(waiterName, 'chef'),
       );
 
   /// Thanh chỉnh lửa + độ nêm của bếp đang chọn (chỉ hiện khi đang nấu)
@@ -2958,7 +3221,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Pal.line)),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           DishIcon(s.t!.recipe.id, size: 36, burnt: s.burnt),
-          Text(s.done ? (s.burnt ? '🔥' : '✅') : 'B${s.t!.table + 1}',
+          Text(s.done ? (s.burnt ? '🔥' : '✅') : (s.t!.table < 0 ? '🍱' : 'B${s.t!.table + 1}'),
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Pal.muted, height: 1.1)),
         ]),
       ),
@@ -3016,7 +3279,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(r.name, maxLines: 2, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Pal.text, height: 1.1)),
-              Text('Bàn ${s.t!.table + 1}', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Pal.muted)),
+              Text(tableLabel(s.t!.table), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Pal.muted)),
             ]),
           ),
           Expanded(
@@ -3215,7 +3478,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       Row(children: [
         Column(mainAxisSize: MainAxisSize.min, children: [
           DishIcon(r.id, size: 54, burnt: s.burnt),
-          Text('Bàn ${tk.table + 1}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Pal.muted)),
+          Text(tableLabel(tk.table), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Pal.muted)),
         ]),
         const SizedBox(width: 8),
         Expanded(child: SizedBox(height: 52, child: Align(alignment: Alignment.centerLeft, child: main))),
@@ -3301,7 +3564,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       );
 
   Widget _ticketCard(Ticket tk) {
-    final c = tk.table < tables.length ? tables[tk.table].c : null;
+    final c = tk.table >= 0 && tk.table < tables.length ? tables[tk.table].c : null;
     final frac = c == null ? 0.0 : (c.pat / c.maxPat).clamp(0.0, 1.0);
     return Transform.rotate(
       angle: ((tk.id % 3) - 1) * 0.04,
@@ -3316,7 +3579,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           DishIcon(tk.recipe.id, size: 26),
-          Text('Bàn ${tk.table + 1}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+          Text(tableLabel(tk.table), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
           Padding(
             padding: const EdgeInsets.fromLTRB(6, 2, 6, 0),
             child: LinearProgressIndicator(

@@ -48,6 +48,9 @@ class IsoRoom extends StatefulWidget {
   final List<OutsideGuest> outside;
   final String? tool;
   final double burnTime;
+  final bool buffet; // nhà hàng buffet: quầy món tự chọn, 2 đầu bếp
+  final List<(String, int)> trays; // món trên quầy buffet và số phần còn lại
+  final Look? chef2Look;
   final void Function(int) onTable;
   final void Function(Dish) onDish;
   final void Function(int) onStation;
@@ -82,6 +85,9 @@ class IsoRoom extends StatefulWidget {
     this.outside = const [],
     this.tool,
     this.burnTime = 8,
+    this.buffet = false,
+    this.trays = const [],
+    this.chef2Look,
   });
   @override
   State<IsoRoom> createState() => _IsoRoomState();
@@ -157,9 +163,166 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
   }
 
   Offset _seat(int i) => _table(i) - const Offset(0.55, 0.55); // ghế phía sau bàn
-  Offset _approach(int i) => _table(i) + const Offset(0.1, -0.85);
+  /// Chỗ phục vụ đứng cạnh bàn (ô trống gần nhất phía trước bàn)
+  Offset _approach(int i) {
+    _buildBlock();
+    final g = _table(i);
+    for (final o in const [Offset(0.75, 0.0), Offset(0.0, 0.75), Offset(0.75, 0.75), Offset(-0.75, 0.0), Offset(0.0, -0.75)]) {
+      final c = _cellOf(g + o);
+      if (_free(c.$1, c.$2)) return g + o;
+    }
+    final c = _nearFree(_cellOf(g));
+    return _cellCenter(c.$1, c.$2);
+  }
   Offset get _door => _uv(_g - 0.2, 0);
   Offset get _waiterHome => const Offset(4.0, 3.75);
+
+  // ---- tìm đường: lưới 0.5 ô, chặn bàn ghế, quầy, bếp, đồ trang trí
+  static const double _cell = 0.5;
+  static const int _gn = 24; // 12 ô / 0.5
+  List<bool> _block = List.filled(_gn * _gn, false);
+  String _blockKey = '';
+
+  void _buildBlock() {
+    final key = '${widget.tables.length}|${widget.tablePos}|${widget.decos.length}|${widget.venueId}';
+    if (key == _blockKey) return;
+    _blockKey = key;
+    final b = List.filled(_gn * _gn, false);
+    void mark(double x0, double y0, double x1, double y1) {
+      for (var j = max(0, (y0 / _cell).floor()); j <= min(_gn - 1, (y1 / _cell).floor()); j++) {
+        for (var i = max(0, (x0 / _cell).floor()); i <= min(_gn - 1, (x1 / _cell).floor()); i++) {
+          b[j * _gn + i] = true;
+        }
+      }
+    }
+
+    // tường: chừa 1 hàng sát tường
+    for (var k = 0; k < _gn; k++) {
+      b[k] = true;
+      b[k * _gn] = true;
+    }
+    mark(0, 0, 6.5, 1.3); // quầy bếp + bếp
+    mark(0, 1.2, 0.95, 4.0); // tủ lạnh, bồn rửa
+    mark(1.15, 2.5, 6.3, 3.35); // quầy ra món
+    for (var i = 0; i < widget.tables.length; i++) {
+      final g = _table(i), sg = _seat(i);
+      mark(g.dx - 0.5, g.dy - 0.5, g.dx + 0.45, g.dy + 0.45);
+      mark(sg.dx - 0.3, sg.dy - 0.3, sg.dx + 0.25, sg.dy + 0.25);
+    }
+    for (final d in widget.decos) {
+      if (decoById(d.type).wall) continue;
+      final g = _uv(4.4 + d.y * 6.6, (d.x - 0.5) * 6.4);
+      mark(g.dx - 0.3, g.dy - 0.3, g.dx + 0.3, g.dy + 0.3);
+    }
+    _block = b;
+  }
+
+  bool _free(int i, int j) => i >= 0 && j >= 0 && i < _gn && j < _gn && !_block[j * _gn + i];
+
+  (int, int) _cellOf(Offset g) => (min(max((g.dx / _cell).floor(), 0), _gn - 1), min(max((g.dy / _cell).floor(), 0), _gn - 1));
+  Offset _cellCenter(int i, int j) => Offset((i + 0.5) * _cell, (j + 0.5) * _cell);
+
+  /// Ô trống gần nhất
+  (int, int) _nearFree((int, int) c) {
+    if (_free(c.$1, c.$2)) return c;
+    for (var r = 1; r < 8; r++) {
+      for (var dj = -r; dj <= r; dj++) {
+        for (var di = -r; di <= r; di++) {
+          if (di.abs() != r && dj.abs() != r) continue;
+          if (_free(c.$1 + di, c.$2 + dj)) return (c.$1 + di, c.$2 + dj);
+        }
+      }
+    }
+    return c;
+  }
+
+  /// A* trên lưới, trả về danh sách điểm (toạ độ ô lưới phòng), đã làm mượt
+  List<Offset> _route(Offset from, Offset to) {
+    _buildBlock();
+    final s0 = _nearFree(_cellOf(from)), s1 = _nearFree(_cellOf(to));
+    final n = _gn * _gn;
+    final gScore = List.filled(n, 1e9), came = List.filled(n, -1);
+    final open = <int>{s0.$2 * _gn + s0.$1};
+    gScore[s0.$2 * _gn + s0.$1] = 0;
+    double hh(int k) => ((k % _gn) - s1.$1).abs() + ((k ~/ _gn) - s1.$2).abs() * 1.0;
+    final goal = s1.$2 * _gn + s1.$1;
+    var guard = 0;
+    while (open.isNotEmpty && guard++ < 4000) {
+      var cur = open.first;
+      var best = gScore[cur] + hh(cur);
+      for (final k in open) {
+        final f = gScore[k] + hh(k);
+        if (f < best) {
+          best = f;
+          cur = k;
+        }
+      }
+      if (cur == goal) break;
+      open.remove(cur);
+      final ci = cur % _gn, cj = cur ~/ _gn;
+      for (var dj = -1; dj <= 1; dj++) {
+        for (var di = -1; di <= 1; di++) {
+          if (di == 0 && dj == 0) continue;
+          final ni = ci + di, nj = cj + dj;
+          if (!_free(ni, nj)) continue;
+          if (di != 0 && dj != 0 && (!_free(ci + di, cj) || !_free(ci, cj + dj))) continue; // không cắt góc
+          final nk = nj * _gn + ni;
+          final ng = gScore[cur] + (di != 0 && dj != 0 ? 1.414 : 1.0);
+          if (ng < gScore[nk]) {
+            gScore[nk] = ng;
+            came[nk] = cur;
+            open.add(nk);
+          }
+        }
+      }
+    }
+    if (came[goal] < 0 && goal != s0.$2 * _gn + s0.$1) return [to];
+    final cells = <int>[];
+    for (var k = goal; k >= 0 && k != s0.$2 * _gn + s0.$1; k = came[k]) {
+      cells.add(k);
+    }
+    final pts = [for (final k in cells.reversed) _cellCenter(k % _gn, k ~/ _gn)];
+    // làm mượt: bỏ điểm giữa nếu đi thẳng được
+    final out = <Offset>[];
+    var a = from;
+    var i = 0;
+    while (i < pts.length) {
+      var j = pts.length - 1;
+      while (j > i && !_clear(a, pts[j])) {
+        j--;
+      }
+      out.add(pts[j]);
+      a = pts[j];
+      i = j + 1;
+    }
+    if (_free(_cellOf(to).$1, _cellOf(to).$2)) out.add(to);
+    return out;
+  }
+
+  bool _clear(Offset a, Offset b) {
+    final d = (b - a).distance;
+    final steps = max(1, (d / (_cell * 0.4)).ceil());
+    for (var k = 1; k < steps; k++) {
+      final p = Offset.lerp(a, b, k / steps)!;
+      final c = _cellOf(p);
+      if (!_free(c.$1, c.$2)) return false;
+    }
+    return true;
+  }
+
+  /// Vị trí sau khi đi được quãng [dist] trên đường [path] bắt đầu từ [from]
+  Offset _along(Offset from, List<Offset> path, double dist) {
+    var a = from;
+    for (final b in path) {
+      final d = (b - a).distance;
+      if (dist <= d) return Offset.lerp(a, b, d == 0 ? 1 : dist / d)!;
+      dist -= d;
+      a = b;
+    }
+    return a;
+  }
+
+  final Map<int, List<Offset>> _inPath = {};
 
   // ---- trạng thái hoạt cảnh
   List<bool> _occ = [];
@@ -241,7 +404,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
 
   void _walkTo(Offset g) {
     if (_wPath.isNotEmpty && (_wPath.last - g).distance < 0.05) return;
-    _wPath = [g];
+    _wPath = _route(_wp, g);
   }
 
   double _walkLen(List<Offset> p, Offset from) {
@@ -271,6 +434,8 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       _dirtyP = List.filled(n, false);
       _npcP = List.filled(n, '');
       _leavers.clear();
+      _inPath.clear();
+      _blockKey = '';
       first = true;
     }
     for (var i = 0; i < n; i++) {
@@ -278,11 +443,12 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       if (occ && !_occ[i]) {
         _seed[i] = ++_seedN * 7919 + i * 31;
         _arr[i] = first ? -10.0 : t;
-        final walk = _walkLen([_seat(i)], _door) / 2.2;
-        _seatAt[i] = first ? -10.0 : t + walk;
+        final path = [..._route(_door, _seat(i) + const Offset(0.45, 0.45)), _seat(i)];
+        _inPath[i] = path;
+        _seatAt[i] = first ? -10.0 : t + _walkLen(path, _door) / 2.2;
       } else if (!occ && _occ[i] && !first) {
         final happy = tb[i].dirty;
-        final path = [_seat(i) + const Offset(0.6, 0.6), _door];
+        final path = [_seat(i), ..._route(_seat(i) + const Offset(0.45, 0.45), _door)];
         _leavers.add(_IWalker(_seed[i], _npcP[i], path, t, _walkLen(path, _seat(i)) / 2.2, happy));
         if (happy) _coins.add((_table(i), t));
         Sound.sfx(happy ? 'coin' : 'angry');
@@ -512,7 +678,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     final th = themeFor(widget.venueId, widget.style);
     final plan = _plan;
     final power = widget.incidents.any((x) => x.type == 'power');
-    c.drawRect(Offset.zero & sz, Paint()..color = _dk(th.wall, 0.55));
+    _outside(c, sz);
 
     // ---- sàn
     const cell = 1.0;
@@ -543,6 +709,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     c.drawLine(o0, o0 - up, Paint()
       ..color = _dk(th.trim, 0.2)
       ..strokeWidth = 2);
+    _wallStripes(c, th);
     _wallWindow(c, 6.5, true, th);
     _wallWindow(c, 9.0, true, th);
     _wallWindow(c, 7.4, false, th);
@@ -584,19 +751,25 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     for (var i = 0; i < widget.tables.length && i < _arr.length; i++) {
       final cu = widget.tables[i].c;
       if (cu == null || t >= _seatAt[i]) continue;
-      final k = ((t - _arr[i]) / max(0.1, _seatAt[i] - _arr[i])).clamp(0.0, 1.0).toDouble();
-      final g = Offset.lerp(_door + const Offset(0.6, 0.6), _seat(i), k)!;
+      final path = _inPath[i] ?? [_seat(i)];
+      final g = _along(_door, path, (t - _arr[i]) * 2.2);
       final look = custLook(cu.npc, _seed[i]);
       draws.add((g.dx + g.dy, () => drawPerson(c, _pg(g), _tw * 1.15, look, walking: true, phase: t * 11 + i, facingLeft: (_seat(i).dx - _seat(i).dy) < 0)));
     }
     // khách ra về
     for (final l in _leavers) {
-      final k = ((t - l.t0) / l.dur).clamp(0.0, 1.0).toDouble();
-      final g = Offset.lerp(l.path.first, l.path.last, k)!;
+      final g = _along(l.path.first, l.path.skip(1).toList(), (t - l.t0) * 2.2);
       draws.add((g.dx + g.dy, () => drawPerson(c, _pg(g), _tw * 1.15, custLook(l.npc, l.seed), walking: true, phase: t * 11, mood: l.happy ? 0 : 2, armUp: l.happy && sin(t * 9) > 0)));
     }
-    // phục vụ
-    draws.add((_wp.dx + _wp.dy + 0.05, () => _drawWaiter(c, t)));
+    // phục vụ (buffet: người thứ 2 cũng vào bếp nấu)
+    if (widget.buffet) {
+      final m = widget.stations.length;
+      final int k2 = min(max(0, m - 1 - (_chefGo == m - 1 ? 1 : 0)), max(0, m - 1));
+      final g2 = _chefSpot(k2);
+      draws.add((g2.dx + g2.dy, () => drawPerson(c, _pg(g2), _tw * 1.2, widget.chef2Look ?? widget.waiterLook, role: 'chef', phase: t * 10, stir: t, name: widget.waiterName)));
+    } else {
+      draws.add((_wp.dx + _wp.dy + 0.05, () => _drawWaiter(c, t)));
+    }
     // đồ trang trí đặt sàn
     for (final d in widget.decos) {
       final dt = decoById(d.type);
@@ -643,6 +816,82 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     }
     if (widget.hasOrders && widget.stations.every((s) => s.t == null) && sin(t * 4) > -0.2) {
       _pill(c, '👆 Chạm vào bếp để nhận order', _pg(_stove(0), _th * 3.2), max(10.0, _tw * 0.22), bg: const Color(0xFFFFF59D));
+    }
+  }
+
+  /// Khung cảnh bên ngoài: đường phố phía sau, vỉa hè lát gạch, bãi cỏ phía trước
+  void _outside(Canvas c, Size sz) {
+    c.drawRect(Offset.zero & sz, Paint()..color = const Color(0xFF7CC36A));
+    // vỉa hè quanh nhà
+    c.drawPath(_area(-14, -14, _g + 0.8, _g + 0.8), Paint()..color = const Color(0xFFE3E0D8));
+    final line = Paint()
+      ..color = const Color(0x22000000)
+      ..strokeWidth = 1;
+    for (var k = -14.0; k <= _g + 0.8; k += 1) {
+      c.drawLine(_p(k, -14), _p(k, _g + 0.8), line);
+      c.drawLine(_p(-14, k), _p(_g + 0.8, k), line);
+    }
+    // 2 con đường phía sau nhà
+    final road = Paint()..color = const Color(0xFF5E6472);
+    c.drawPath(_area(-14, -4.2, _g + 8, -2.0), road);
+    c.drawPath(_area(-4.2, -14, -2.0, _g + 8), road);
+    final dash = Paint()..color = const Color(0xFFFFE082);
+    for (var k = -12.0; k < _g + 6; k += 1.4) {
+      c.drawPath(_area(k, -3.15, k + 0.7, -3.05), dash);
+      c.drawPath(_area(-3.15, k, -3.05, k + 0.7), dash);
+    }
+    // bãi cỏ phía trước
+    c.drawPath(_area(_g + 0.8, -14, _g + 14, _g + 14), Paint()..color = const Color(0xFF7CC36A));
+    c.drawPath(_area(-14, _g + 0.8, _g + 0.8, _g + 14), Paint()..color = const Color(0xFF7CC36A));
+    // bậc thềm nền nhà
+    final l = _p(0, _g), b = _p(_g, _g), r = _p(_g, 0);
+    c.drawPath(_poly([l, b, b + const Offset(0, 6), l + const Offset(0, 6)]), Paint()..color = const Color(0xFFB0A898));
+    c.drawPath(_poly([b, r, r + const Offset(0, 6), b + const Offset(0, 6)]), Paint()..color = const Color(0xFFC8C0B0));
+    // cây + đèn đường bên ngoài
+    for (final g in const [Offset(13.6, 3.0), Offset(13.6, 8.5), Offset(3.5, 13.6), Offset(9.0, 13.6)]) {
+      final q = _pg(g);
+      c.drawOval(Rect.fromCenter(center: q, width: _tw * 0.8, height: _th * 0.5), Paint()..color = const Color(0x33000000));
+      c.drawRect(Rect.fromCenter(center: q - Offset(0, _tw * 0.25), width: _tw * 0.1, height: _tw * 0.5), Paint()..color = const Color(0xFF795548));
+      c.drawCircle(q - Offset(0, _tw * 0.65), _tw * 0.38, Paint()..color = const Color(0xFF43A047));
+      c.drawCircle(q - Offset(_tw * 0.15, _tw * 0.78), _tw * 0.22, Paint()..color = const Color(0xFF66BB6A));
+    }
+  }
+
+  /// Tường sọc 2 màu + kệ chai lọ + khung tranh (như các game nhà hàng)
+  void _wallStripes(Canvas c, VTheme th) {
+    final a = _lt(th.wall, 0.18), b = th.wall;
+    for (var k = 0.0; k < _g; k += 1.5) {
+      final col = ((k / 1.5).round()).isEven ? a : b;
+      // tường phải (gy = 0)
+      c.drawPath(_poly([_p(k, 0, _wallH * 0.18), _p(k + 1.5, 0, _wallH * 0.18), _p(k + 1.5, 0, _wallH), _p(k, 0, _wallH)]), Paint()..color = col);
+      // tường trái (gx = 0), tối hơn một chút
+      c.drawPath(_poly([_p(0, k, _wallH * 0.18), _p(0, k + 1.5, _wallH * 0.18), _p(0, k + 1.5, _wallH), _p(0, k, _wallH)]), Paint()..color = _dk(col, 0.1));
+    }
+    // kệ chai lọ trên tường phải
+    for (final gx in [10.6]) {
+      final s0 = _p(gx, 0, _wallH * 0.6), s1 = _p(gx + 1.0, 0, _wallH * 0.6);
+      c.drawLine(s0, s1, Paint()
+        ..color = th.wood
+        ..strokeWidth = 3);
+      for (var k = 0; k < 4; k++) {
+        final q = Offset.lerp(s0, s1, 0.15 + k * 0.23)!;
+        c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: q - Offset(0, _tw * 0.12), width: _tw * 0.08, height: _tw * 0.22), const Radius.circular(2)),
+            Paint()..color = const [Color(0xFFE53935), Color(0xFF43A047), Color(0xFFFFB300), Color(0xFF8E24AA)][k]);
+      }
+    }
+    // khung tranh trên tường trái
+    for (final gy in [9.6]) {
+      final a0 = _p(0, gy, _wallH * 0.8), a1 = _p(0, gy + 1.1, _wallH * 0.8);
+      final path = _poly([a0, a1, a1 + Offset(0, _wallH * 0.4), a0 + Offset(0, _wallH * 0.4)]);
+      c.drawPath(path, Paint()..color = const Color(0xFFFFF8E1));
+      c.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = th.wood,
+      );
+      _emoji(c, '🌺', Offset.lerp(a0, a1, 0.5)! + Offset(0, _wallH * 0.2), _tw * 0.26);
     }
   }
 
@@ -881,6 +1130,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
   }
 
   void _drawPass(Canvas c, double t, VTheme th) {
+    if (widget.buffet) return _drawBuffet(c, t, th);
     // quầy ra món dài, có tấm kính và chuông
     _box(c, 1.25, 2.6, 6.2, 3.25, _th * 1.2, _lt(th.wood, 0.15));
     c.drawPath(_area(1.25, 2.6, 6.2, 2.75, _th * 1.2), Paint()..color = _dk(th.trim, 0.1));
@@ -901,6 +1151,31 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     }
     _emoji(c, '🛎️', _pg(const Offset(6.0, 2.9), _th * 1.2 + 6), _tw * 0.24);
     _pill(c, 'Quầy ra món', _pg(const Offset(1.5, 3.3), _th * 0.3), max(8.0, _tw * 0.16), bg: _lt(th.accent, 0.5));
+  }
+
+  /// Quầy buffet: mỗi khay một món, vạch xanh/đỏ là số phần còn lại
+  void _drawBuffet(Canvas c, double t, VTheme th) {
+    _box(c, 1.25, 2.6, 6.2, 3.25, _th * 1.2, const Color(0xFFECEFF1));
+    c.drawPath(_area(1.25, 2.6, 6.2, 2.7, _th * 1.2), Paint()..color = const Color(0xFFC62828));
+    final n = widget.trays.length;
+    for (var k = 0; k < n; k++) {
+      final (id, qty) = widget.trays[k];
+      final g = Offset(1.75 + k * (4.2 / max(1, n)) + 0.2, 2.92);
+      final p = _pg(g, _th * 1.2);
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: _tw * 0.7, height: _th * 0.55), const Radius.circular(4)), Paint()..color = const Color(0xFFB0BEC5));
+      if (qty > 0) {
+        drawDish(c, id, p - Offset(0, _th * 0.25), _tw * (0.45 + 0.04 * min(qty, 6)), t: t);
+      } else if (sin(t * 6) > 0) {
+        _emoji(c, '❗', p - Offset(0, _th * 0.5), _tw * 0.3);
+      }
+      // số phần còn lại
+      final bar = Rect.fromCenter(center: p + Offset(0, _th * 0.55), width: _tw * 0.62, height: 5);
+      c.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(3)), Paint()..color = const Color(0x55000000));
+      final f = (qty / 8).clamp(0.0, 1.0).toDouble();
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * f, bar.height), const Radius.circular(3)),
+          Paint()..color = qty <= 2 ? const Color(0xFFFF5252) : const Color(0xFF66BB6A));
+    }
+    _pill(c, '🍱 Quầy buffet tự chọn', _pg(const Offset(1.5, 3.3), _th * 0.3), max(8.0, _tw * 0.16), bg: const Color(0xFFFFE082));
   }
 
   void _drawTable(Canvas c, int i, double t, VTheme th) {
@@ -1028,10 +1303,11 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     final bc = head + Offset(_tw * 0.45, -bounce);
     final bw = r * 1.9, bh = r * 1.6;
     _bubble(c, bc, bw, bh, sel ? const Color(0xFFC8E6C9) : Colors.white, border: sel ? Colors.green : null);
-    if (cu.st == 0) {
+    if (cu.st == 0 && !widget.buffet) {
       _emoji(c, '❗', bc, r);
     } else {
       drawDish(c, cu.recipe.id, bc, r * 1.5);
+      if (widget.buffet) _emoji(c, '🍱', bc + Offset(r * 0.8, -r * 0.6), r * 0.6);
     }
     final bar = Rect.fromLTWH(bc.dx - bw / 2, bc.dy + bh / 2 + 3, bw, 4);
     c.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(2)), Paint()..color = const Color(0x55000000));
