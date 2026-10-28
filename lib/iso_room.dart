@@ -227,7 +227,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     }
     // đầu bếp đi tới bếp vừa thao tác
     if (widget.stations.isNotEmpty) {
-      final tx = _chefSpot(_chefGo.clamp(0, widget.stations.length - 1)).dx;
+      final tx = _chefSpot(min(max(_chefGo, 0), widget.stations.length - 1)).dx;
       final d = tx - _cx;
       if (d.abs() > 0.02) {
         _cLeft = d < 0;
@@ -867,7 +867,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
 
   void _drawChef(Canvas c, Offset g, double t) {
     final st = widget.stations;
-    final at = _chefGo.clamp(0, max(0, st.length - 1));
+    final int at = min(max(_chefGo, 0), max(0, st.length - 1));
     final busy = st.isNotEmpty && (st[at].cooking || st[at].chopping);
     drawPerson(c, _pg(g), _tw * 1.2, widget.chefLook, role: 'chef', walking: (_chefSpot(at).dx - _cx).abs() > 0.03, phase: t * 10, facingLeft: _cLeft, stir: busy ? t : -1, name: widget.chefName);
   }
