@@ -208,6 +208,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       final g = _table(i), sg = _seat(i);
       mark(g.dx - 0.38, g.dy - 0.38, g.dx + 0.34, g.dy + 0.34);
       mark(sg.dx - 0.22, sg.dy - 0.22, sg.dx + 0.18, sg.dy + 0.18);
+      if (_plan.table == 'round') mark(g.dx + 0.24, g.dy + 0.24, g.dx + 0.6, g.dy + 0.6);
     }
     for (final d in widget.decos) {
       if (decoById(d.type).wall) continue;
@@ -1178,6 +1179,91 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     _pill(c, '🍱 Quầy buffet tự chọn', _pg(const Offset(1.5, 3.3), _th * 0.234), max(8.0, _tw * 0.125), bg: const Color(0xFFFFE082));
   }
 
+  static const _wood = Color(0xFFC98A5A), _woodDk = Color(0xFF8A5530), _ink = Color(0xFF3E2723);
+
+  Paint get _outline => Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.3
+    ..color = _ink;
+
+  /// Bàn tròn gỗ chân trụ, có bình hoa cam khi bàn trống
+  void _roundTable(Canvas c, Offset g, double hTop, bool vase) {
+    final base = _pg(g), top = _pg(g, hTop * 1.25);
+    final r = _tw * 0.36;
+    // đế + chân trụ
+    c.drawOval(Rect.fromCenter(center: base, width: r * 0.9, height: r * 0.32), Paint()..color = _woodDk);
+    c.drawOval(Rect.fromCenter(center: base, width: r * 0.9, height: r * 0.32), _outline);
+    final col = Rect.fromLTRB(top.dx - r * 0.07, top.dy, top.dx + r * 0.07, base.dy);
+    c.drawRect(col, Paint()..color = _wood);
+    c.drawRect(col, _outline);
+    // mặt bàn dày
+    final face = Rect.fromCenter(center: top, width: r * 2, height: r * 0.62);
+    c.drawOval(face.shift(Offset(0, r * 0.1)), Paint()..color = _woodDk);
+    c.drawOval(face.shift(Offset(0, r * 0.1)), _outline);
+    c.drawOval(face, Paint()..color = _wood);
+    c.drawOval(face, _outline);
+    c.drawOval(Rect.fromCenter(center: top - Offset(r * 0.3, r * 0.08), width: r * 0.7, height: r * 0.16), Paint()..color = const Color(0x55FFFFFF));
+    if (vase) {
+      final v = top - Offset(0, r * 0.05);
+      c.drawRect(Rect.fromCenter(center: v - Offset(0, r * 0.2), width: r * 0.16, height: r * 0.36), Paint()..color = const Color(0xFFF3D9B1));
+      c.drawRect(Rect.fromCenter(center: v - Offset(0, r * 0.2), width: r * 0.16, height: r * 0.36), _outline);
+      final f = v - Offset(0, r * 0.58);
+      for (final o in const [Offset(-0.14, 0), Offset(0.14, 0), Offset(0, -0.13), Offset(-0.07, 0.1), Offset(0.07, 0.1), Offset(0, 0)]) {
+        c.drawCircle(f + Offset(o.dx * r, o.dy * r), r * 0.13, Paint()..color = o == Offset.zero ? const Color(0xFFFFD54F) : const Color(0xFFFF9800));
+      }
+      c.drawCircle(f, r * 0.3, _outline..strokeWidth = 1);
+    }
+  }
+
+  /// Ghế bành gỗ lưng cong, 4 chân thanh mảnh choãi ra. [fromBack]: nhìn từ phía sau lưng ghế
+  void _tubChair(Canvas c, Offset p, double u, bool fromBack) {
+    const shell = Color(0xFFB9774A), inner = Color(0xFF6D3B22), cushion = Color(0xFFD99A66), leg = Color(0xFFE8B98A);
+    final seat = p - Offset(0, u * 0.62);
+    // chân ghế
+    for (final dx in const [-0.36, -0.14, 0.14, 0.36]) {
+      final top = seat + Offset(dx * u * 0.8, u * 0.12);
+      final bot = p + Offset(dx * u * 1.25, (dx.abs() < 0.2 ? -0.06 : 0.04) * u);
+      c.drawLine(top, bot, Paint()
+        ..color = _ink
+        ..strokeWidth = 3.2
+        ..strokeCap = StrokeCap.round);
+      c.drawLine(top, bot, Paint()
+        ..color = leg
+        ..strokeWidth = 1.8
+        ..strokeCap = StrokeCap.round);
+    }
+    final seatR = Rect.fromCenter(center: seat, width: u * 0.95, height: u * 0.36);
+    final back = RRect.fromRectAndCorners(
+      Rect.fromLTRB(seat.dx - u * 0.5, seat.dy - u * 0.62, seat.dx + u * 0.5, seat.dy + u * 0.08),
+      topLeft: Radius.circular(u * 0.32),
+      topRight: Radius.circular(u * 0.32),
+      bottomLeft: Radius.circular(u * 0.12),
+      bottomRight: Radius.circular(u * 0.12),
+    );
+    if (fromBack) {
+      // nhìn từ sau: thấy mặt ngoài lưng ghế che phần đệm
+      c.drawOval(seatR, Paint()..color = cushion);
+      c.drawOval(seatR, _outline);
+      c.drawRRect(back, Paint()..color = const Color(0xFFD9A273));
+      c.drawRRect(back, _outline);
+      c.drawRRect(back.deflate(u * 0.08), Paint()..color = shell);
+    } else {
+      // nhìn từ trước: lưng ghế phía sau, lòng ghế tối, đệm ngồi sáng
+      c.drawRRect(back, Paint()..color = shell);
+      c.drawRRect(back, _outline);
+      c.drawRRect(back.deflate(u * 0.1), Paint()..color = inner);
+      c.drawOval(seatR, Paint()..color = cushion);
+      c.drawOval(seatR, _outline);
+      // tay vịn cong
+      for (final sd in const [-1.0, 1.0]) {
+        c.drawLine(seat + Offset(sd * u * 0.46, -u * 0.36), seat + Offset(sd * u * 0.44, u * 0.06), Paint()
+          ..color = shell
+          ..strokeWidth = u * 0.12
+          ..strokeCap = StrokeCap.round);
+      }
+    }
+  }
+
   void _drawTable(Canvas c, int i, double t, VTheme th) {
     final tb = widget.tables[i];
     final g = _table(i);
@@ -1190,6 +1276,8 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       _box(c, sg.dx - 0.4, sg.dy - 0.18, sg.dx + 0.26, sg.dy + 0.26, _th * 0.5, _dk(th.accent, 0.05));
     } else if (kind == 'mat') {
       _box(c, g.dx - 0.58, g.dy - 0.58, g.dx + 0.58, g.dy + 0.58, 3, const Color(0xFFD9B77A)); // chiếu tre
+    } else if (kind == 'round') {
+      _tubChair(c, _pg(sg), _tw * 0.42, false);
     } else {
       _box(c, sg.dx - 0.15, sg.dy - 0.15, sg.dx + 0.15, sg.dy + 0.15, _th * 0.4, _lt(th.wood, 0.1));
     }
@@ -1215,10 +1303,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     final hTop = kind == 'mat' ? _th * 0.351 : _th * 0.663;
     switch (kind) {
       case 'round':
-        final p = _pg(g, hTop);
-        c.drawRect(Rect.fromCenter(center: _pg(g, hTop / 2), width: _tw * 0.062, height: hTop), Paint()..color = _dk(th.wood, 0.3));
-        c.drawOval(Rect.fromCenter(center: p + const Offset(0, 3), width: _tw * 0.741, height: _th * 0.741), Paint()..color = _dk(th.wood, 0.2));
-        c.drawOval(Rect.fromCenter(center: p, width: _tw * 0.741, height: _th * 0.741), Paint()..color = th.cloth);
+        _roundTable(c, g, hTop, cu == null && !tb.dirty);
         break;
       case 'square':
         _box(c, g.dx - 0.34, g.dy - 0.34, g.dx + 0.34, g.dy + 0.34, hTop, th.cloth);
@@ -1258,6 +1343,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       final pop = ks < 0.45 ? 1 + 0.5 * sin(ks / 0.45 * pi) : 1.0;
       drawDish(c, cu.recipe.id, topC - Offset(0, _tw * 0.094 * pop), _tw * 0.468 * pop, t: t);
     }
+    if (kind == 'round') _tubChair(c, _pg(g + const Offset(0.42, 0.42)), _tw * 0.42, true);
     final lab = _text('${i + 1}', max(8.0, _tw * 0.133), color: _dk(th.wood, 0.4), bold: true);
     lab.paint(c, _pg(g + const Offset(0.55, 0.55), 2) - Offset(lab.width / 2, lab.height / 2));
   }
