@@ -145,7 +145,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       return _uv(u, v);
     }
     // 3 hàng đầu đủ cột; phòng hẹp dần về phía cửa nên hàng cuối chỉ đặt bàn ở giữa
-    const rows = [4.9, 7.0, 9.1];
+    const rows = [5.4, 7.3, 9.2];
     final cols = _plan.cols;
     final per = cols.length;
     if (i < per * rows.length) {
@@ -153,7 +153,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       return _uv(rows[row], cols[col] + (row.isOdd ? 0.3 : 0));
     }
     final k = i - per * rows.length;
-    return _uv(10.8, const [0.0, -0.9, 0.9][k % 3]);
+    return _uv(10.9, const [0.0, -0.8, 0.8][k % 3]);
   }
 
   Offset _seat(int i) => _table(i) - const Offset(0.55, 0.55); // ghế phía sau bàn
