@@ -1743,14 +1743,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         bottom: 200,
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
-          child: LayoutBuilder(
-            builder: (ctx, cons) => SingleChildScrollView(
-              child: SizedBox(
-                height: max(cons.maxHeight, 760),
-                child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots()),
-              ),
-            ),
-          ),
+          child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots()),
         ),
       ),
       Positioned(
@@ -1761,7 +1754,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(color: Colors.white.withAlpha(235), borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 8)]),
-            child: const Text('👆 Chạm vào quán để chọn • vuốt để xem cả phố', style: TextStyle(fontWeight: FontWeight.w700, color: Pal.text, fontSize: 12.5)),
+            child: const Text('👆 Chạm quán để chọn • kéo, chụm 2 ngón để xem phố', style: TextStyle(fontWeight: FontWeight.w700, color: Pal.text, fontSize: 12.5)),
           ),
         ),
       ),
@@ -2042,6 +2035,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void onVenueTap(String id) {
+    if (id == 'garden') {
+      Sound.sfx('tap');
+      return setState(() => hubTab = 'garden');
+    }
     if (id == 'sig_mine') return openSigPicker();
     if (id == 'sig_partner') return showPartnerSig();
     if (isSigVenue(id) && id == sig && id == venueId) return showSigManage();
