@@ -25,7 +25,72 @@ const bizEvents = [
   ('review', '⭐', 'Đánh giá 5 sao', 'Một khách viết bài khen quán, nhân viên phấn khởi', 1.2, 1.0, 6, false),
 ];
 
+/// Tính cách nhân viên: (id, nhãn, ×phục vụ, ×tiền, ×bẩn, ×chán)
+const staffTraits = [
+  ('cham', '💪 Chăm chỉ', 1.10, 1.0, 1.0, 1.0),
+  ('muon', '⏰ Hay đi muộn', 0.88, 1.0, 1.0, 0.9),
+  ('kheo', '😄 Khéo ăn nói', 1.0, 1.10, 1.0, 1.0),
+  ('vung', '🫣 Hơi vụng về', 1.0, 1.0, 1.3, 1.0),
+  ('nhanh', '⚡ Nhanh nhẹn', 1.15, 1.0, 1.0, 1.2),
+  ('vui', '🎶 Vui tính', 1.0, 1.05, 1.0, 0.7),
+];
+
+const staffNames = ['Tuấn', 'Lan', 'Hùng', 'Mai', 'Phúc', 'Thảo', 'Khoa', 'Vy', 'Minh', 'Hà', 'Long', 'Trang', 'Quân', 'Ngân', 'Bảo', 'Yến'];
+
+/// Món hợp thời tiết: món nóng (lẩu, canh, nướng) đắt khách khi mưa/lạnh; món tươi mát khi nắng nóng
+bool dishIsWarm(String id) => ['lau', 'kimchi', 'galbi', 'bachi', 'chim', 'heo', 'suon', 'mi_xao', 'ha_cao'].any(id.contains);
+bool dishIsFresh(String id) => ['hau', 'tom', 'cua', 'melon', 'mango', 'dragon', 'cf_da', 'tra', 'sinh'].any(id.contains);
+
 class Biz {
+  // ---- nhân viên có tên, tính cách, tay nghề (giờ làm)
+  Map<String, Map<String, dynamic>> emp = {};
+  // ---- món chủ lực của tuần
+  String featured = '';
+  int featuredWeek = 0;
+  // ---- nguyên liệu từ vườn (bán đắt hơn), số lần thu hoạch đã lấy
+  double farm = 0;
+  int farmClaimed = 0;
+  // ---- khách quen, doanh thu tuần (thi với quán người kia)
+  double regulars = 0;
+  int week = 0;
+  double weekRev = 0, lastWeekRev = 0;
+  int prizeWeek = 0;
+
+  static int weekOf(DateTime d) => d.difference(DateTime(2026, 1, 5)).inDays ~/ 7;
+
+  /// Tạo hồ sơ cho nhân viên mới thuê
+  void hire(String role, Random r) {
+    emp[role] ??= {'n': staffNames[r.nextInt(staffNames.length)], 't': r.nextInt(staffTraits.length), 'xp': 0.0};
+  }
+
+  (String, String, int)? person(String role) {
+    final e = emp[role];
+    if (e == null) return null;
+    final tr = staffTraits[((e['t'] as num).toInt()) % staffTraits.length];
+    final xp = (e['xp'] as num).toDouble();
+    return (e['n'].toString(), tr.$2, (min(20.0, xp / 5)).round());
+  }
+
+  double _trait(int k) {
+    var m = 1.0;
+    for (final e in emp.entries) {
+      if (lv(e.key) <= 0) continue;
+      final tr = staffTraits[((e.value['t'] as num).toInt()) % staffTraits.length];
+      m *= [tr.$3, tr.$4, tr.$5, tr.$6][k];
+    }
+    return m;
+  }
+
+  double get _skill {
+    var sum = 0.0, n = 0;
+    for (final e in emp.entries) {
+      if (lv(e.key) <= 0) continue;
+      sum += min(0.2, (e.value['xp'] as num).toDouble() / 500);
+      n++;
+    }
+    return n == 0 ? 0 : sum / n;
+  }
+
   Map<String, int> staff = {'chef': 0, 'waiter': 0, 'manager': 0, 'cleaner': 0};
   double morale = 70, clean = 90, stock = 20, wageMul = 1;
   double cash = 0;
@@ -51,6 +116,16 @@ class Biz {
         'de': decided,
         'in': inspected,
         'lg': log.take(30).toList(),
+        'em': emp,
+        'fe': featured,
+        'fw': featuredWeek,
+        'fa': farm,
+        'fc': farmClaimed,
+        're': regulars,
+        'wk': week,
+        'wr': weekRev,
+        'lw': lastWeekRev,
+        'pw': prizeWeek,
       };
 
   static Biz fromJson(dynamic j) {
@@ -67,6 +142,18 @@ class Biz {
     b.decided = (j['de'] as num?)?.toInt() ?? 0;
     b.inspected = (j['in'] as num?)?.toInt() ?? 0;
     b.log = List<String>.from((j['lg'] as List?) ?? const []);
+    b.emp = {
+      for (final e in ((j['em'] as Map?) ?? const {}).entries) e.key.toString(): Map<String, dynamic>.from(e.value as Map),
+    };
+    b.featured = (j['fe'] ?? '').toString();
+    b.featuredWeek = (j['fw'] as num?)?.toInt() ?? 0;
+    b.farm = (j['fa'] as num?)?.toDouble() ?? 0;
+    b.farmClaimed = (j['fc'] as num?)?.toInt() ?? 0;
+    b.regulars = (j['re'] as num?)?.toDouble() ?? 0;
+    b.week = (j['wk'] as num?)?.toInt() ?? 0;
+    b.weekRev = (j['wr'] as num?)?.toDouble() ?? 0;
+    b.lastWeekRev = (j['lw'] as num?)?.toDouble() ?? 0;
+    b.prizeWeek = (j['pw'] as num?)?.toInt() ?? 0;
     return b;
   }
 
@@ -95,7 +182,7 @@ class Biz {
   }
 
   /// Tính quán chạy từ lần trước tới [now]. [gifts]: quà/cổ vũ của người kia (thời điểm, số tiền; 0 = cổ vũ)
-  void run(int now, {required String owner, required int rank, required double avgPrice, required double crowd, List<(int, int)> gifts = const []}) {
+  void run(int now, {required String owner, required int rank, required double avgPrice, required double crowd, List<(int, int)> gifts = const [], bool warm = false, bool hot = false}) {
     if (last == 0) {
       last = now;
       return;
@@ -163,18 +250,46 @@ class Biz {
             _say(at, '📦 Quản lý tự nhập 20 phần hàng (−$cost💰)');
           }
         }
-        final demand = (4 + 2 * rank) * crowd * dMul;
-        final cap = min(5.0 * lv('chef'), 6.0 * lv('waiter')) * (0.5 + 0.5 * morale / 100) * cMul;
+        // món chủ lực hợp thời tiết, khách quen
+        var fMul = 1.0;
+        if (featured.isNotEmpty && ((warm && dishIsWarm(featured)) || (hot && dishIsFresh(featured)))) fMul = 1.2;
+        final demand = (4 + 2 * rank) * crowd * dMul * fMul * (1 + min(0.5, regulars / 100));
+        final lateMul = hour < 8.5 && _trait(0) < 1 ? 0.5 : 1.0; // nhân viên hay đi muộn
+        final cap = min(5.0 * lv('chef'), 6.0 * lv('waiter')) * (0.5 + 0.5 * morale / 100) * cMul * _trait(0) * (1 + _skill) * lateMul;
         final served = min(min(demand, cap) * dt, stock);
         stock -= served;
-        final income = served * avgPrice * (1 + 0.08 * (rank - 1)) * (0.7 + 0.3 * clean / 100);
+        final fromFarm = min(served, farm); // hàng nhà trồng bán trước, đắt hơn 15%
+        farm -= fromFarm;
+        final featBonus = featured.isNotEmpty ? 1.05 : 1.0;
+        final income = (served + fromFarm * 0.15) * avgPrice * featBonus * (1 + 0.08 * (rank - 1)) * (0.7 + 0.3 * clean / 100) * _trait(1);
+        // doanh thu tuần
+        final wk = weekOf(at);
+        if (wk != week) {
+          lastWeekRev = week == wk - 1 ? weekRev : 0;
+          weekRev = 0;
+          week = wk;
+        }
+        weekRev += income;
+        // tay nghề tăng theo giờ làm
+        for (final e in emp.values) {
+          e['xp'] = (e['xp'] as num).toDouble() + dt;
+        }
+        // khách quen: hài lòng thì quay lại, quán bẩn/nhân viên chán thì mất khách
+        if (morale > 60 && clean > 60) {
+          final r0 = regulars;
+          regulars = min(50.0, regulars + served * 0.03);
+          if (r0 < 10 && regulars >= 10) _say(at, '🤝 Quán đã có 10 khách quen, họ rủ thêm bạn bè tới');
+          if (r0 < 30 && regulars >= 30) _say(at, '🤝 30 khách quen! Quán nổi tiếng cả khu phố');
+        } else if (morale < 30 || clean < 40) {
+          regulars = max(0.0, regulars - dt * 0.5);
+        }
         final wages = (6 * lv('chef') + 5 * lv('waiter') + 10 * lv('manager') + 4 * lv('cleaner')) * wageMul * dt;
         final before = cash;
         cash = min(cashCap, cash + income) - wages;
         if (before < cashCap && cash + wages >= cashCap) _say(at, '💰 Két đầy! Vào thu tiền kẻo phí khách');
-        clean = max(0.0, clean - served * 0.5 * (1 - 0.25 * lv('cleaner')));
+        clean = max(0.0, clean - served * 0.5 * (1 - 0.25 * lv('cleaner')) * _trait(2));
         final mBefore = morale;
-        morale = max(0.0, morale - dt * (lv('manager') > 0 ? 0.6 : 1.2));
+        morale = max(0.0, morale - dt * (lv('manager') > 0 ? 0.6 : 1.2) * _trait(3));
         if (mBefore >= 15 && morale < 15 && lv('waiter') > 1) {
           staff['waiter'] = lv('waiter') - 1;
           _say(at, '😞 Một phục vụ chán việc nên nghỉ (còn cấp ${lv('waiter')})');

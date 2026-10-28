@@ -16,6 +16,7 @@ import 'town.dart';
 import 'ui.dart';
 import 'dishes.dart';
 import 'garden_store.dart';
+import 'garden_engine.dart' show GEvent;
 import 'garden_ui.dart';
 import 'warmup.dart';
 import 'crowd.dart';
@@ -109,7 +110,44 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         if ((e.a == 'cheer' || e.a == 'gift') && e.d['to'] == owner) (e.at, e.a == 'gift' ? ((e.d['m'] as num?)?.toInt() ?? 0) : 0),
     ];
     final crowd = Crowd.total(Crowd.factors(venueId: sig, sig: true, sigRank: sigRank, ads: const {}, day: day));
-    biz.run(DateTime.now().millisecondsSinceEpoch, owner: owner, rank: sigRank, avgPrice: _sigAvgPrice, crowd: crowd, gifts: gifts);
+    final w = Crowd.weather;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    biz.run(now, owner: owner, rank: sigRank, avgPrice: _sigAvgPrice, crowd: crowd, gifts: gifts,
+        warm: w != null && (w.rain || w.storm || w.temp < 24), hot: w != null && w.temp >= 31);
+    // gửi doanh thu tuần cho người kia xem (tối đa 30 phút/lần)
+    if (biz.hired && now - _revPubAt > 30 * 60000) {
+      _revPubAt = now;
+      Garden.instance.act('rev', {'own': owner, 'wk': biz.week, 'v': biz.weekRev.round(), 'lw': biz.lastWeekRev.round()});
+    }
+    // thưởng thắng cuộc thi doanh thu tuần trước
+    final pr = partnerRev();
+    if (biz.week > 0 && biz.prizeWeek != biz.week && pr != null && biz.lastWeekRev > 0) {
+      final theirLast = pr.$1 == biz.week ? pr.$3 : (pr.$1 == biz.week - 1 ? pr.$2 : 0);
+      if (biz.lastWeekRev > theirLast) {
+        biz.prizeWeek = biz.week;
+        money += 300;
+        biz.log.insert(0, '🏆 Thắng cuộc thi doanh thu tuần trước! +300💰');
+      }
+    }
+  }
+
+  int _revPubAt = 0;
+
+  /// Doanh thu của quán người kia: (tuần, tuần này, tuần trước)
+  (int, int, int)? partnerRev() {
+    GEvent? last;
+    for (final e in Garden.instance.events) {
+      if (e.a == 'rev' && e.d['own'] == partnerName && (last == null || e.at >= last.at)) last = e;
+    }
+    if (last == null) return null;
+    int v(String k) => (last!.d[k] as num?)?.toInt() ?? 0;
+    return (v('wk'), v('v'), v('lw'));
+  }
+
+  /// Số phần nông sản từ vườn chưa lấy (mỗi lần thu hoạch = 6 phần)
+  int get farmAvail {
+    final total = Garden.instance.state.harvests.values.fold<int>(0, (a, b) => a + b);
+    return max(0, total * 6 - biz.farmClaimed * 6);
   }
   int tickN = 0;
   int hostDecor = 0; // cấp trang trí của chủ phòng (để khách thấy đúng cây cảnh)
@@ -2171,6 +2209,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ]),
         ]),
       ),
+      ..._bizExtras(setS, done),
       if (evData != null) ...[
         const SizedBox(height: 8),
         AppCard(
@@ -2214,6 +2253,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${st.$3} • cấp ${b.lv(st.$1)}/${st.$6}', style: const TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+                  if (b.lv(st.$1) > 0 && b.person(st.$1) != null)
+                    Text('${b.person(st.$1)!.$1} • ${b.person(st.$1)!.$2} • tay nghề +${b.person(st.$1)!.$3}%',
+                        style: const TextStyle(color: Pal.mint, fontSize: 11.5, fontWeight: FontWeight.w800)),
                   Text('${st.$7} • lương ${st.$5}💰/giờ mỗi cấp', style: const TextStyle(color: Pal.muted, fontSize: 11.5)),
                 ]),
               ),
@@ -2221,6 +2263,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 PriceButton(st.$4 * (b.lv(st.$1) + 1), afford: money >= st.$4 * (b.lv(st.$1) + 1), onTap: () {
                   if (!pay(st.$4 * (b.lv(st.$1) + 1))) return;
                   b.staff[st.$1] = b.lv(st.$1) + 1;
+                  b.hire(st.$1, Random());
                   if (b.last == 0) b.last = DateTime.now().millisecondsSinceEpoch;
                   Sound.sfx('coin');
                   done('${st.$2} Đã thuê ${st.$3.toLowerCase()} cấp ${b.lv(st.$1)}');
@@ -2234,6 +2277,95 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         const SectionTitle('📒 Nhật ký quán'),
         for (final l in b.log.take(8)) Padding(padding: const EdgeInsets.only(bottom: 3), child: Text(l, style: const TextStyle(color: Pal.muted, fontSize: 12))),
       ],
+    ];
+  }
+
+  /// Món chủ lực, nông sản từ vườn, khách quen, cuộc thi doanh thu tuần
+  List<Widget> _bizExtras(StateSetter setS, void Function(String) done) {
+    final b = biz;
+    final wk = Biz.weekOf(DateTime.now());
+    final menu = venueById(sig).recipes.where((r) => recipes.contains(r.id)).toList();
+    final w = Crowd.weather;
+    final warm = w != null && (w.rain || w.storm || w.temp < 24), hot = w != null && w.temp >= 31;
+    final canPick = b.featuredWeek != wk;
+    final pr = partnerRev();
+    final theirs = pr == null ? 0 : (pr.$1 == wk ? pr.$2 : 0);
+    final mine = b.week == wk ? b.weekRev.round() : 0;
+    return [
+      const SizedBox(height: 8),
+      AppCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('🍽️ Món chủ lực của tuần', style: TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+          Text(
+            canPick
+                ? 'Chọn 1 món (mỗi tuần 1 lần): bán đắt hơn 5%, hợp thời tiết thì khách tăng 20%. ${warm ? 'Hôm nay mưa/mát: món nóng đắt khách.' : (hot ? 'Hôm nay nắng nóng: món tươi mát đắt khách.' : '')}'
+                : 'Tuần này đã chọn: ${b.featured.isEmpty ? '' : recipeById(b.featured).name}',
+            style: const TextStyle(color: Pal.muted, fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final r in menu)
+              GestureDetector(
+                onTap: !canPick
+                    ? null
+                    : () {
+                        b.featured = r.id;
+                        b.featuredWeek = wk;
+                        done('🍽️ Món chủ lực tuần này: ${r.name}');
+                      },
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: b.featured == r.id ? const Color(0xFFFFEDE6) : Pal.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: b.featured == r.id ? Pal.coral : Pal.line, width: b.featured == r.id ? 2 : 1),
+                  ),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    DishIcon(r.id, size: 40),
+                    Text(dishIsWarm(r.id) ? '🔥 nóng' : (dishIsFresh(r.id) ? '❄️ mát' : '•'), style: const TextStyle(fontSize: 10)),
+                  ]),
+                ),
+              ),
+          ]),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      AppCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _meter('🤝 Khách quen', b.regulars / 50, Pal.berry, '${b.regulars.round()} người'),
+          const Text('Khách hài lòng (nhân viên vui, quán sạch) sẽ thành khách quen và rủ bạn bè tới: tối đa +50% khách.',
+              style: TextStyle(color: Pal.muted, fontSize: 11.5)),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: Text('🌻 Nông sản từ vườn: ${b.farm.round()} phần trong kho, $farmAvail phần chờ lấy (bán đắt hơn 15%)',
+                  style: const TextStyle(color: Pal.text, fontSize: 12, fontWeight: FontWeight.w700)),
+            ),
+            SoftButton('Lấy', emoji: '🧺', onTap: farmAvail <= 0
+                ? null
+                : () {
+                    final n = farmAvail;
+                    b.farm += n;
+                    b.stock += n;
+                    b.farmClaimed += n ~/ 6;
+                    done('🧺 Đã lấy $n phần nông sản từ vườn');
+                  }),
+          ]),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      AppCard(
+        color: const Color(0xFFEAF1FF),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('🏆 Thi doanh thu tuần này', style: TextStyle(fontWeight: FontWeight.w900, color: Pal.text)),
+          const SizedBox(height: 4),
+          Row(children: [
+            Expanded(child: Text('${owner.isEmpty ? 'Bạn' : owner}: $mine💰', style: TextStyle(fontWeight: FontWeight.w900, color: mine >= theirs ? Pal.mint : Pal.text))),
+            Expanded(child: Text('$partnerName: $theirs💰', textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.w900, color: theirs > mine ? Pal.mint : Pal.text))),
+          ]),
+          const Text('Hết tuần, quán nào bán nhiều hơn được thưởng 300💰.', style: TextStyle(color: Pal.muted, fontSize: 11.5)),
+        ]),
+      ),
     ];
   }
 
