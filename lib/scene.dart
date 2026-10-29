@@ -1,6 +1,7 @@
 // Cảnh nhà hàng 2D vẽ bằng CustomPainter: nhân vật biết đi, ngồi, gọi món, ăn;
 // bếp có lửa, hơi nước, khói. Không cần thêm thư viện hay file ảnh nào.
 import 'dart:math';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
