@@ -1980,6 +1980,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   // ---------- Bản đồ ----------
+  bool mapPanel = true; // bảng thông tin quán dưới bản đồ (ẩn để xem rộng)
   Widget mapTab() {
     final nTables = min(4 + lvl('tables'), venue.maxTables);
     final nRecipes = venue.recipes.where((r) => recipes.contains(r.id)).length;
@@ -1988,7 +1989,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         left: 0,
         right: 0,
         top: 0,
-        bottom: 200,
+        bottom: mapPanel ? 200 : 0,
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
           child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots()),
@@ -2006,6 +2007,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ),
         ),
       ),
+      if (mapPanel)
       Positioned(
         left: 12,
         right: 12,
@@ -2042,6 +2044,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               startDay();
             }),
           ]),
+        ),
+      ),
+      Positioned(
+        right: 14,
+        bottom: mapPanel ? 214 : 14,
+        child: Material(
+          color: Colors.white,
+          elevation: 4,
+          shape: const StadiumBorder(),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: () {
+              Sound.sfx('tap');
+              setState(() => mapPanel = !mapPanel);
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(mapPanel ? '🔽 Ẩn bảng quán' : '🔼 Hiện bảng quán', style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.text, fontSize: 12.5)),
+            ),
+          ),
         ),
       ),
     ]);

@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'data.dart';
 import 'pixel.dart';
-import 'scene.dart' show drawPerson, Look, webTick;
+import 'scene.dart' show drawPerson, Look, webTick, kNguyen, kNgocAnh;
 
 // ------------------------------------------------------------------ hệ toạ độ
 const double _tw = 48; // bề ngang 1 ô
@@ -129,6 +129,15 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       if (key == 'sig_partner' && !s.mine) return s;
     }
     return null;
+  }
+
+  /// Màu riêng của chủ: Nguyên tím, Ngọc Anh xanh biển
+  Color _ownerCol(String key) {
+    final s = _sigFor(key);
+    final who = s?.owner ?? '';
+    if (who == kNguyen) return const Color(0xFF8E44D9);
+    if (who == kNgocAnh) return const Color(0xFF2F80ED);
+    return key == 'sig_mine' ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF);
   }
 
   /// Quán đang đặt trên lô (null = đất trống / vườn)
@@ -471,7 +480,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     final vid = _venueOf(l);
     final id = _hitIdOf(l);
     _hit[id] = _lotRect(l);
-    if (vid == null) return _emptyLot(c, l, l.key == 'sig_mine');
+    if (vid == null) return _emptyLot(c, l, l.key == 'sig_mine', _ownerCol(l.key));
     final owned = l.key.startsWith('sig_') || widget.owned.contains(vid);
     if (vid == 'truck') return _truckLot(c, l, owned);
     _building(c, l, vid, owned, night);
@@ -634,7 +643,16 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
   /// Toà nhà theo kiến trúc riêng của quán, đặt gọn giữa lô (chừa sân xung quanh)
   void _building(Canvas c, _Lot l, String vid, bool owned, bool night) {
     final lk0 = _looks[vid] ?? _looks['cafe']!;
-    Color g(Color x) => owned ? x : _grey(x);
+    final sigLot = l.key.startsWith('sig_');
+    final hue = sigLot ? HSLColor.fromColor(_ownerCol(l.key)).hue : 0.0;
+    Color tint(Color x) {
+      if (!sigLot) return x;
+      final h = HSLColor.fromColor(x);
+      if (h.saturation < 0.18) return x;
+      return h.withHue(hue).toColor();
+    }
+
+    Color g(Color x) => owned ? tint(x) : _grey(x);
     final x0 = l.x0 + 0.55, x1 = l.x1 - 0.55, y0 = l.y0 + 0.45, y1 = l.y1 - 0.75;
     final cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     final v = venueById(vid);
@@ -709,7 +727,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         // nhà góc phố trắng kiểu Âu: phào chỉ, hàng bi trên mái, mái hiên xanh lượn sóng, bàn ngoài trời
         const h = 32.0;
         _box(c, x0 - 0.3, y0 - 0.3, x1 + 0.45, y1 + 0.6, 3, g(const Color(0xFFE6E0D6)), g(const Color(0xFFC9C2B6)), g(const Color(0xFFD6CFC3)));
-        const wall = Color(0xFFF7F4EE);
+        const wall = Color(0xFFF8BBD0);
         _walls(c, x0, y0, x1, y1, h, g(wall), z: 3);
         final gl = Paint()..color = night ? const Color(0xFFFFD54F) : const Color(0xFFFFE6C2);
         final wf = Paint()
@@ -721,8 +739,8 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
           c.drawPath(pth, wf);
         }
         // phào chỉ + mái bằng + hàng bi
-        _walls(c, x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, 7, g(const Color(0xFFEDE5D8)), z: h + 3);
-        c.drawPath(_area(x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, h + 10), Paint()..color = g(const Color(0xFFF3ECE0)));
+        _walls(c, x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, 7, g(const Color(0xFFF48FB1)), z: h + 3);
+        c.drawPath(_area(x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, h + 10), Paint()..color = g(const Color(0xFFF9C4D8)));
         final ball = Paint()..color = g(const Color(0xFFF1DFC4));
         for (var k = 0; k <= 8; k++) {
           c.drawCircle(_iso(x0 - 0.12 + (x1 - x0 + 0.24) * k / 8, y1 + 0.12, h + 12), 2.4, ball);
@@ -731,7 +749,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
           c.drawCircle(_iso(x1 + 0.12, y0 - 0.12 + (y1 - y0 + 0.24) * k / 5, h + 12), 2.4, ball);
         }
         // mái hiên xanh lượn sóng 2 mặt
-        final blue = g(const Color(0xFF86C9E6));
+        final blue = g(const Color(0xFFE85A92));
         void awning(List<Offset> q) {
           c.drawPath(_pg(q), Paint()..color = blue);
           for (var k = 1; k < 6; k++) {
@@ -775,7 +793,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         // một tầng, mái cong vút màu cam lớn, cột đỏ, vách song cửa sáng đèn, hàng đèn lồng
         const h = 26.0;
         _box(c, x0 - 0.3, y0 - 0.3, x1 + 0.3, y1 + 0.55, 4, g(const Color(0xFFEDEAE4)), g(const Color(0xFFC9C3B8)), g(const Color(0xFFD6D0C5)));
-        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFE98A2E)), z: 4);
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFC62828)), z: 4);
         final lat = Paint()
           ..color = g(const Color(0xFF8A2A12))
           ..strokeWidth = 1.2;
@@ -795,19 +813,19 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         c.drawPath(_onL(y1, cx - 0.38, cx + 0.38, 4, h + 2), Paint()..color = g(const Color(0xFFB23A1E)));
         c.drawLine(_iso(cx, y1, 4), _iso(cx, y1, h + 2), lat);
         final col = Paint()
-          ..color = g(const Color(0xFFC0392B))
+          ..color = g(const Color(0xFF7F1010))
           ..strokeWidth = 4;
         for (final gx in [x0, cx - 0.45, cx + 0.45, x1]) {
           c.drawLine(_iso(gx, y1, 4), _iso(gx, y1, h + 4), col);
         }
         c.drawLine(_iso(x1, cy, 4), _iso(x1, cy, h + 4), col);
-        _hip(c, x0, y0, x1, y1, h + 4, 24, g(const Color(0xFFE8622A)), over: 0.6, ridge: 0.15, curve: 11);
+        _hip(c, x0, y0, x1, y1, h + 4, 24, g(const Color(0xFFB71C1C)), over: 0.6, ridge: 0.15, curve: 11);
         // hàng đèn lồng đỏ dưới mái
         for (final gx in [x0 + 0.3, x0 + 0.7, x0 + 1.1, x1 - 1.1, x1 - 0.7, x1 - 0.3]) {
           final top = _iso(gx, y1 + 0.3, h + 4);
           c.drawLine(top, top + const Offset(0, 5), Paint()..color = const Color(0xFF3E2723));
-          c.drawOval(Rect.fromCenter(center: top + const Offset(0, 10), width: 7, height: 9), Paint()..color = g(const Color(0xFFE53935)));
-          if (night) c.drawOval(Rect.fromCenter(center: top + const Offset(0, 10), width: 3.5, height: 5), Paint()..color = const Color(0xFFFFE082));
+          c.drawOval(Rect.fromCenter(center: top + const Offset(0, 10), width: 7, height: 9), Paint()..color = g(const Color(0xFFFFC107)));
+          if (night) c.drawOval(Rect.fromCenter(center: top + const Offset(0, 10), width: 3.5, height: 5), Paint()..color = const Color(0xFFFFF8E1));
         }
         _txt(c, owned ? v.emoji : '🔒', _iso(cx, y1, h + 6), 9, Colors.white);
         roofTop = _iso(cx, cy, h + 42);
@@ -816,12 +834,12 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       case 'mexican':
         // nhà đất nung kiểu Mexico: mái bằng, cửa vòm, mái ngói đỏ trên hiên, xương rồng
         const h = 28.0;
-        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFF4C99B)));
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFFFD54F)));
         _windows(c, x0, y0, x1, y1, 9, 20, g(const Color(0xFF1E8A8A)), night);
         _door(c, x0, x1, y1, h, g(const Color(0xFF1E8A8A)), g(lk0.awning), owned ? v.emoji : '🔒', arch: true);
-        c.drawPath(_area(x0, y0, x1, y1, h), Paint()..color = g(const Color(0xFFE8B98A)));
-        c.drawPath(_pg([_iso(x0, y1, h), _iso(x1, y1, h), _iso(x1, y1, h + 4), _iso(x0, y1, h + 4)]), Paint()..color = g(const Color(0xFFD9A273)));
-        c.drawPath(_pg([_iso(x1, y1, h), _iso(x1, y0, h), _iso(x1, y0, h + 4), _iso(x1, y1, h + 4)]), Paint()..color = g(const Color(0xFFE2AE80)));
+        c.drawPath(_area(x0, y0, x1, y1, h), Paint()..color = g(const Color(0xFFF2C230)));
+        c.drawPath(_pg([_iso(x0, y1, h), _iso(x1, y1, h), _iso(x1, y1, h + 4), _iso(x0, y1, h + 4)]), Paint()..color = g(const Color(0xFFE0AE1E)));
+        c.drawPath(_pg([_iso(x1, y1, h), _iso(x1, y0, h), _iso(x1, y0, h + 4), _iso(x1, y1, h + 4)]), Paint()..color = g(const Color(0xFFEDBB2A)));
         // mái ngói đỏ trên hiên trước
         c.drawPath(_pg([_iso(x0 - 0.1, y1, h * 0.72), _iso(x1 + 0.1, y1, h * 0.72), _iso(x1 + 0.1, y1 + 0.45, h * 0.55), _iso(x0 - 0.1, y1 + 0.45, h * 0.55)]), Paint()..color = g(const Color(0xFFBF5B2C)));
         for (final gx in [x0 - 0.15, x1 + 0.25]) {
@@ -921,8 +939,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     c.drawCircle(p, 2.6, Paint()..color = const Color(0xFFE57373));
   }
 
-  void _emptyLot(Canvas c, _Lot l, bool mine) {
-    final col = mine ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF);
+  void _emptyLot(Canvas c, _Lot l, bool mine, Color col) {
     _box(c, l.x0, l.y0, l.x1, l.y1, 3, const Color(0xFFD7C4A3), const Color(0xFFB59E7A), const Color(0xFFC4AD88));
     // cọc rào công trường
     final edges = [
@@ -975,7 +992,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
   void _truckLot(Canvas c, _Lot l, bool owned) {
     // xe bán đồ ăn màu vàng: bảng hiệu nổi trên nóc, cửa bán mở, ghế nhựa xanh
     Color g(Color x) => owned ? x : _grey(x);
-    final yel = g(const Color(0xFFF7B500));
+    final yel = g(const Color(0xFF43A047));
     final x0 = l.x0 + 0.5, x1 = l.x1 - 0.5, y0 = l.y0 + 0.9, y1 = l.y1 - 0.9;
     final xb = x1 - 1.0;
     _box(c, x0, y0, xb, y1, 30, _lt(yel, 0.1), _dk(yel, 0.12), _dk(yel, 0.04));
@@ -1057,7 +1074,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       if (vid == null) {
         final mine = l.key == 'sig_mine';
         final who = sig?.owner ?? (mine ? 'Bạn' : '');
-        _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 22), '🏗️ Đất của $who', mine ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF), Colors.white);
+        _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 22), '🏗️ Đất của $who', _ownerCol(l.key), Colors.white);
         _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 44), mine ? 'Chạm để mở nhà hàng riêng' : 'Chưa mở quán', Colors.white, const Color(0xFF221B3F));
         continue;
       }
@@ -1072,7 +1089,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         }
       }
       final name = sig != null ? '${v.emoji} ${v.name.split(' – ').first}' : (owned ? '${v.emoji} ${v.name}' : '🔒 ${v.name}');
-      final bg = sig != null ? (sig.mine ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF)) : (owned ? Colors.white : const Color(0xFFEEEEEE));
+      final bg = sig != null ? _ownerCol(l.key) : (owned ? Colors.white : const Color(0xFFEEEEEE));
       final fg = sig != null ? Colors.white : (owned ? const Color(0xFF221B3F) : const Color(0xFF6E6E80));
       final lp = vid == 'truck' ? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 60) : top - const Offset(0, 4);
       _label(c, lp, name, bg, fg);
