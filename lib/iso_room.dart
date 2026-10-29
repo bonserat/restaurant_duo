@@ -327,6 +327,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
   }
 
   final Map<int, List<Offset>> _inPath = {};
+  final Map<int, double> _pickLen = {}; // buffet: quãng đường tới quầy lấy món
 
   // ---- trạng thái hoạt cảnh
   List<bool> _occ = [];
@@ -447,7 +448,18 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       if (occ && !_occ[i]) {
         _seed[i] = ++_seedN * 7919 + i * 31;
         _arr[i] = first ? -10.0 : t;
-        final path = [..._route(_door, _seat(i) + const Offset(0.45, 0.45)), _seat(i)];
+        var path = [..._route(_door, _seat(i) + const Offset(0.45, 0.45)), _seat(i)];
+        _pickLen.remove(i);
+        if (widget.buffet && widget.trays.isNotEmpty) {
+          // buffet: ghé quầy lấy món rồi mới về bàn
+          final rid = tb[i].c!.recipe.id;
+          final n0 = widget.trays.length;
+          final k = max(0, widget.trays.indexWhere((x) => x.$1 == rid));
+          final pick = Offset(1.95 + k * (4.2 / n0), 3.65);
+          final a = _route(_door, pick);
+          _pickLen[i] = _walkLen(a, _door);
+          path = [...a, ..._route(pick, _seat(i) + const Offset(0.45, 0.45)), _seat(i)];
+        }
         _inPath[i] = path;
         _seatAt[i] = first ? -10.0 : t + _walkLen(path, _door) / 2.2;
       } else if (!occ && _occ[i] && !first) {
@@ -784,7 +796,9 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       final path = _inPath[i] ?? [_seat(i)];
       final g = _along(_door, path, (t - _arr[i]) * 2.2);
       final look = custLook(cu.npc, _seed[i]);
-      draws.add((_zk(g), () => drawPerson(c, _pg(g), _tw * 0.88, look, walking: true, phase: t * 11 + i, facingLeft: (_seat(i).dx - _seat(i).dy) < 0)));
+      final pl = _pickLen[i];
+      final carry = pl != null && cu.st == 2 && (t - _arr[i]) * 2.2 >= pl ? cu.recipe.id : null;
+      draws.add((_zk(g), () => drawPerson(c, _pg(g), _tw * 0.88, look, walking: true, phase: t * 11 + i, facingLeft: (_seat(i).dx - _seat(i).dy) < 0, carry: carry)));
     }
     // khách ra về
     for (final l in _leavers) {
@@ -1216,27 +1230,91 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
 
   /// Quầy buffet: mỗi khay một món, vạch xanh/đỏ là số phần còn lại
   void _drawBuffet(Canvas c, double t, VTheme th) {
-    _box(c, 1.25, 2.6, 6.2, 3.25, _th * 0.936, const Color(0xFFECEFF1));
-    c.drawPath(_area(1.25, 2.6, 6.2, 2.7, _th * 0.936), Paint()..color = const Color(0xFFC62828));
+    // bàn buffet phủ khăn, rủ diềm; nồi hâm có nắp vòm, chồng đĩa, ly, bát
+    final h = _th * 0.95;
+    final cloth = widget.venueId == 'poseidon' ? const Color(0xFF16336B) : const Color(0xFF9E1B1B);
+    _box(c, 1.25, 2.6, 6.2, 3.25, h, Colors.white);
+    // mặt trước: khăn rủ với các vạt hình chữ V
+    final l0 = _p(1.25, 3.25, 0), l1 = _p(6.2, 3.25, 0);
+    c.drawPath(_poly([l0, l1, l1 - Offset(0, h), l0 - Offset(0, h)]), Paint()..color = cloth);
+    final r1 = _p(6.2, 2.6, 0);
+    c.drawPath(_poly([l1, r1, r1 - Offset(0, h), l1 - Offset(0, h)]), Paint()..color = _dk(cloth, 0.15));
+    for (var k = 1; k < 7; k++) {
+      final b = Offset.lerp(l0, l1, k / 7)!;
+      c.drawPath(_poly([b - Offset(_tw * 0.06, 0), b + Offset(_tw * 0.06, 0), b - Offset(0, h * 0.55)]), Paint()..color = _lt(cloth, 0.55));
+      c.drawCircle(b - Offset(0, h * 0.02), _tw * 0.04, Paint()..color = cloth);
+    }
+    // diềm trên
+    for (var k = 0; k < 7; k++) {
+      final a = Offset.lerp(l0, l1, k / 7)! - Offset(0, h), b = Offset.lerp(l0, l1, (k + 1) / 7)! - Offset(0, h);
+      c.drawPath(Path()
+        ..moveTo(a.dx, a.dy)
+        ..quadraticBezierTo((a.dx + b.dx) / 2, (a.dy + b.dy) / 2 + _th * 0.22, b.dx, b.dy), Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = const Color(0xFFFFD54F));
+    }
+    c.drawPath(_area(1.25, 2.6, 6.2, 3.25, h), Paint()..color = _lt(cloth, 0.12));
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = _ink;
+    // chồng đĩa + ly ở đầu bàn
+    final ps = _pg(const Offset(1.5, 2.9), h);
+    for (var k = 0; k < 6; k++) {
+      final r = Rect.fromCenter(center: ps - Offset(0, k * _th * 0.07), width: _tw * 0.3, height: _th * 0.15);
+      c.drawOval(r, Paint()..color = Colors.white);
+      c.drawOval(r, line);
+    }
+    for (final o in const [Offset(1.6, 3.12), Offset(1.82, 3.12)]) {
+      final gp = _pg(o, h);
+      c.drawLine(gp, gp - Offset(0, _tw * 0.07), line..strokeWidth = 1.4);
+      c.drawPath(_poly([gp - Offset(_tw * 0.04, _tw * 0.07), gp - Offset(-_tw * 0.04, _tw * 0.07), gp - Offset(-_tw * 0.05, _tw * 0.18), gp - Offset(_tw * 0.05, _tw * 0.18)]), Paint()..color = const Color(0xCCB3E5FC));
+    }
     final n = widget.trays.length;
     for (var k = 0; k < n; k++) {
       final (id, qty) = widget.trays[k];
-      final g = Offset(1.75 + k * (4.2 / max(1, n)) + 0.2, 2.92);
-      final p = _pg(g, _th * 0.936);
-      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: p, width: _tw * 0.546, height: _th * 0.429), const Radius.circular(4)), Paint()..color = const Color(0xFFB0BEC5));
+      final g = Offset(1.95 + k * (4.2 / max(1, n)) + 0.2, 2.9);
+      final p = _pg(g, h);
+      // chân đế + lò cồn
+      for (final dx in const [-1.0, 1.0]) {
+        c.drawLine(p + Offset(dx * _tw * 0.2, 0), p + Offset(dx * _tw * 0.2, -_th * 0.3), Paint()
+          ..color = const Color(0xFF455A64)
+          ..strokeWidth = 2);
+      }
+      c.drawRect(Rect.fromCenter(center: p - Offset(0, _th * 0.08), width: _tw * 0.1, height: _th * 0.12), Paint()..color = const Color(0xFF263238));
+      if (qty > 0) c.drawCircle(p - Offset(0, _th * 0.2), 2, Paint()..color = const Color(0xFF4FC3F7));
+      // khay inox
+      final pan = Rect.fromCenter(center: p - Offset(0, _th * 0.36), width: _tw * 0.52, height: _th * 0.3);
+      // nắp vòm: mở ra phía sau khi còn món, đậy lại khi hết
+      final dome = Rect.fromLTRB(pan.left + _tw * 0.03, pan.center.dy - _tw * (qty > 0 ? 0.42 : 0.28), pan.right - _tw * 0.03, pan.center.dy + (qty > 0 ? -_tw * 0.08 : _th * 0.05));
       if (qty > 0) {
-        drawDish(c, id, p - Offset(0, _th * 0.195), _tw * (0.45 + 0.04 * min(qty, 6)), t: t);
-      } else if (sin(t * 6) > 0) {
-        _emoji(c, '❗', p - Offset(0, _th * 0.39), _tw * 0.234);
+        c.drawArc(dome, pi, pi, true, Paint()..color = const Color(0xFFB0BEC5));
+        c.drawArc(dome, pi, pi, true, line);
+      }
+      c.drawRRect(RRect.fromRectAndRadius(pan, const Radius.circular(4)), Paint()..color = const Color(0xFFCFD8DC));
+      c.drawRRect(RRect.fromRectAndRadius(pan, const Radius.circular(4)), line);
+      if (qty > 0) {
+        drawDish(c, id, pan.center - Offset(0, _th * 0.12), _tw * (0.4 + 0.03 * min(qty, 6)), t: t);
+      } else {
+        c.drawArc(dome, pi, pi, true, Paint()..color = const Color(0xFF90A4AE));
+        c.drawArc(dome, pi, pi, true, line);
+        c.drawCircle(Offset(dome.center.dx, dome.top - 2), 2.5, Paint()..color = _ink);
+        if (sin(t * 6) > 0) _emoji(c, '❗', pan.center - Offset(0, _th * 1.0), _tw * 0.22);
       }
       // số phần còn lại
-      final bar = Rect.fromCenter(center: p + Offset(0, _th * 0.429), width: _tw * 0.484, height: 5);
+      final bar = Rect.fromCenter(center: p + Offset(0, _th * 0.25), width: _tw * 0.44, height: 4);
       c.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(3)), Paint()..color = const Color(0x55000000));
       final f = (qty / 8).clamp(0.0, 1.0).toDouble();
       c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * f, bar.height), const Radius.circular(3)),
           Paint()..color = qty <= 2 ? const Color(0xFFFF5252) : const Color(0xFF66BB6A));
+      // bát món nhỏ phía trước
+      if (qty > 2) {
+        final bp = _pg(g + const Offset(0.0, 0.25), h);
+        c.drawArc(Rect.fromCenter(center: bp, width: _tw * 0.18, height: _tw * 0.12), 0, pi, true, Paint()..color = Colors.white);
+        c.drawArc(Rect.fromCenter(center: bp, width: _tw * 0.18, height: _tw * 0.12), 0, pi, true, line);
+      }
     }
-    _pill(c, '🍱 Quầy buffet tự chọn', _pg(const Offset(1.5, 3.3), _th * 0.234), max(8.0, _tw * 0.125), bg: const Color(0xFFFFE082));
   }
 
   static const _wood = Color(0xFFC98A5A), _woodDk = Color(0xFF8A5530), _ink = Color(0xFF3E2723);

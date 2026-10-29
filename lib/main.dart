@@ -82,7 +82,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Map<String, int> ads = {}; // quảng cáo: id → chạy tới (trước) ngày này
   double crowdMul = 1; // hệ số khách của ngày đang chơi
   // ---- Nhà hàng Trung: buffet tự chọn. Khách tự lấy món ở quầy, hết món thì đầu bếp nấu thêm ----
-  bool get buffet => venue.id == 'chinese';
+  bool get buffet => venue.id == 'chinese' || venue.id == 'poseidon';
+
+  // nhân viên thuê vào phụ khi tự chơi ở quán riêng: 'chef' | 'waiter' | ''
+  String helper = '';
+  double helperT = 0;
   List<String> trayIds = [];
   List<int> trayQty = [];
   List<double> trayQ = [];
@@ -1027,6 +1031,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void endDay() {
+    helper = '';
     timer?.cancel();
     endGoal = goal;
     if (earned >= goal) money += 50;
@@ -1214,6 +1219,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         }
       }
     }
+
+    if (helper.isNotEmpty && venueId == sig && !remote && !race) _helperStep(dt);
 
     // Bếp: canh lửa, nấu, chờ lấy món
     final fireSt = incidents.where((x) => x.type == 'fire').map((x) => x.target).toSet();
@@ -1626,6 +1633,68 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     activeStation = i;
     if (!s.cooking) return;
     s.heat = (s.heat + d).clamp(0.0, 1.0).toDouble();
+  }
+
+  /// Nhân viên thuê tự làm phần việc người chơi không làm
+  void _helperStep(double dt) {
+    final lv = max(1, biz.lv(helper));
+    if (helper == 'chef') {
+      for (final s in stations) {
+        if (s.cooking && (s.heat < 0.38 || s.heat > 0.7)) s.heat = 0.55;
+      }
+    }
+    helperT -= dt;
+    if (helperT > 0) return;
+    helperT = max(0.35, 1.3 - 0.18 * lv);
+    if (helper == 'waiter') {
+      for (var i = 0; i < tables.length; i++) {
+        if (tables[i].dirty) return onTable(i, null);
+      }
+      for (var i = 0; i < tables.length; i++) {
+        final c = tables[i].c;
+        if (c != null && c.st == 1 && counter.any((d) => d.ticketId == c.ticketId)) return onTable(i, c.ticketId);
+      }
+      for (var i = 0; i < tables.length; i++) {
+        final c = tables[i].c;
+        if (c != null && c.st == 0 && !buffet) return onTable(i, null);
+      }
+      return;
+    }
+    final keep = activeStation;
+    for (var si = 0; si < stations.length; si++) {
+      final s = stations[si];
+      if (s.t == null) continue;
+      if (s.done && (s.t!.table < 0 || counter.length < 6)) {
+        onStation(si);
+        activeStation = keep;
+        return;
+      }
+      if (s.chopping) {
+        onStation(si);
+        activeStation = keep;
+        return;
+      }
+      if (!s.cooking && !s.done) {
+        final miss = s.t!.recipe.ings.where((id) => !s.added.contains(id) && !s.board.contains(id)).toList();
+        if (miss.isNotEmpty) {
+          onIngredient(miss.first, si);
+          activeStation = keep;
+          return;
+        }
+      }
+      if (!s.done && !s.burnt && s.salt < s.saltTarget - 0.35) {
+        onIngredient('salt', si);
+        activeStation = keep;
+        return;
+      }
+    }
+    for (var si = 0; si < stations.length; si++) {
+      if (stations[si].t == null && queue.isNotEmpty) {
+        onStation(si);
+        activeStation = keep;
+        return;
+      }
+    }
   }
 
   void onPet(String id) {
@@ -2500,6 +2569,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       );
   }
 
+  bool get _helping => helper.isNotEmpty && venueId == sig && screen == 'play';
+  String get _wName => _helping && helper == 'waiter' ? (biz.person('waiter')?.$1 ?? waiterName) : (_helping && helper == 'chef' && buffet ? (biz.person('chef')?.$1 ?? waiterName) : waiterName);
+  String get _cName => _helping && helper == 'chef' && !buffet ? (biz.person('chef')?.$1 ?? chefName) : chefName;
+
+  void _startWithHelper(String h) {
+    helper = h;
+    helperT = 1.5;
+    mode = 'local';
+    myRole = 'both';
+    startDay();
+  }
+
   /// Chạm vào quán trên bản đồ: hiện phòng chơi + nút mở cửa
   void showRoomSheet(String id) {
     final v = venueById(id);
@@ -2513,12 +2594,34 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         const SizedBox(height: 8),
         crowdRow(),
         const SizedBox(height: 10),
-        GButton('Mở cửa ngày $day', emoji: '▶', onTap: () {
-          Navigator.pop(ctx);
-          mode = 'local';
-          myRole = 'both';
-          startDay();
-        }),
+        if (isSigVenue(id) && id == sig && (biz.lv('chef') > 0 || biz.lv('waiter') > 0)) ...[
+          const Text('Tự vào làm cùng nhân viên thuê:', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
+          const SizedBox(height: 6),
+          if (biz.lv('waiter') > 0 && id != 'poseidon')
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GButton('Tôi nấu • ${biz.person('waiter')?.$1 ?? 'nhân viên'} phục vụ', emoji: '🧑‍🍳', onTap: () {
+                Navigator.pop(ctx);
+                _startWithHelper('waiter');
+              }),
+            ),
+          if (biz.lv('chef') > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GButton(id == 'poseidon' ? 'Tôi nấu cùng ${biz.person('chef')?.$1 ?? 'đầu bếp'}' : 'Tôi phục vụ • ${biz.person('chef')?.$1 ?? 'đầu bếp'} nấu', emoji: '🧑‍💼', onTap: () {
+                Navigator.pop(ctx);
+                _startWithHelper('chef');
+              }),
+            ),
+          SoftButton('Tự làm hết (ngày $day)', emoji: '▶', onTap: () {
+            Navigator.pop(ctx);
+            _startWithHelper('');
+          }),
+        ] else
+          GButton('Mở cửa ngày $day', emoji: '▶', onTap: () {
+            Navigator.pop(ctx);
+            _startWithHelper('');
+          }),
         if (isSigVenue(id) && id == sig) ...[
           const SizedBox(height: 8),
           GButton(biz.hired ? 'Nhân viên & kinh doanh tự động' : 'Thuê nhân viên cho quán', emoji: '👥', onTap: () {
@@ -3254,10 +3357,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         venueId: venueId,
         style: styleNow,
         light: lightNow,
-        waiterLook: castLook(waiterName, 'waiter'),
-        chefLook: castLook(chefName, 'chef'),
-        waiterName: waiterName,
-        chefName: chefName,
+        waiterLook: castLook(_wName, 'waiter'),
+        chefLook: castLook(_cName, 'chef'),
+        waiterName: _wName,
+        chefName: _cName,
         tablePos: tablePosNow,
         decos: decosNow,
         pets: petsNow,
@@ -3273,7 +3376,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         onPet: doPet,
         buffet: buffet,
         trays: [for (var k = 0; k < trayIds.length; k++) (trayIds[k], trayQty[k])],
-        chef2Look: castLook(waiterName, 'chef'),
+        chef2Look: castLook(_wName, 'chef'),
       );
 
   /// Thanh chỉnh lửa + độ nêm của bếp đang chọn (chỉ hiện khi đang nấu)
