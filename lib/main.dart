@@ -21,6 +21,7 @@ import 'garden_ui.dart';
 import 'warmup.dart';
 import 'crowd.dart';
 import 'auto_biz.dart';
+import 'live_room.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -2610,8 +2611,58 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   bool get _helping => helper.isNotEmpty && venueId == sig && screen == 'play';
-  String get _wName => _helping && helper == 'waiter' ? (biz.person('waiter')?.$1 ?? waiterName) : (_helping && helper == 'chef' && buffet ? (biz.person('chef')?.$1 ?? waiterName) : waiterName);
-  String get _cName => _helping && helper == 'chef' && !buffet ? (biz.person('chef')?.$1 ?? chefName) : chefName;
+  String get _wName => _helping && helper == 'waiter' ? (biz.person('waiter')?.$1 ?? 'Phục vụ thuê') : (_helping && helper == 'chef' && buffet ? (biz.person('chef')?.$1 ?? 'Đầu bếp thuê') : waiterName);
+  String get _cName => _helping && helper == 'chef' && !buffet ? (biz.person('chef')?.$1 ?? 'Đầu bếp thuê') : chefName;
+
+  /// Khung xem trực tiếp quán riêng đang tự chạy (khách thật lúc này + hoạt động trong quán)
+  Widget liveSig(String id, int n) {
+    bizRun();
+    final now = DateTime.now();
+    final hour = now.hour + now.minute / 60;
+    var dMul = 1.0, cMul = 1.0;
+    var closed = false;
+    String? evText;
+    final ev = Biz.eventOf(owner, now);
+    if (ev != null) {
+      final e = bizEvents[ev.$1];
+      if (hour >= ev.$2 && hour < ev.$2 + e.$7) {
+        dMul = e.$5;
+        cMul = e.$6;
+        closed = e.$8;
+        evText = '${e.$2} ${e.$3}';
+      }
+    }
+    final b = biz;
+    final open = hour >= 8 && hour < 22 && b.hired && !closed;
+    final crowd = Crowd.total(Crowd.factors(venueId: id, sig: true, sigRank: sigRank, ads: const {}, day: day));
+    final demand = (4 + 2 * sigRank) * crowd * dMul;
+    final cap = min(5.0 * b.lv('chef'), 6.0 * b.lv('waiter')) * (0.5 + 0.5 * b.morale / 100) * cMul;
+    final perH = open ? min(demand, cap) : 0.0;
+    final target = min(n, max(open ? 1 : 0, (perH * 0.5).round()));
+    final status = open
+        ? '👥 $target bàn có khách • ~${perH.round()} khách/giờ'
+        : (!b.hired ? '🔒 Chưa thuê đủ Đầu bếp + Phục vụ' : (closed ? '⛔ Quán tạm đóng' : '🌙 Đóng cửa (mở 8h–22h)'));
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: SizedBox(
+        height: 320,
+        child: LiveBizRoom(
+          key: ValueKey('live-$id-$target-$open'),
+          venueId: id,
+          owner: owner,
+          chefName: b.person('chef')?.$1 ?? 'Đầu bếp thuê',
+          waiterName: b.person('waiter')?.$1 ?? 'Phục vụ thuê',
+          tables: n,
+          target: target,
+          open: open,
+          buffet: id == 'chinese' || id == 'poseidon',
+          menu: venueById(id).recipes.where((r) => recipes.contains(r.id)).map((r) => r.id).toList(),
+          status: status,
+          event: evText,
+        ),
+      ),
+    );
+  }
 
   void _startWithHelper(String h) {
     helper = h;
@@ -2628,7 +2679,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       final n = min(4 + lvl('tables'), v.maxTables);
       final nRec = v.recipes.where((r) => recipes.contains(r.id)).length;
       return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
-        roomPreview(id, n),
+        if (isSigVenue(id) && id == sig) liveSig(id, n) else roomPreview(id, n),
         const SizedBox(height: 10),
         Text('🪑 $n bàn  •  📖 $nRec món  •  🎯 mục tiêu $goal💰', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),

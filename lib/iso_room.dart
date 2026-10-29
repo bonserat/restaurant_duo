@@ -17,7 +17,7 @@ const _plans = {
   'chinese': _RoomPlan('ming', [-1.9, 0, 1.9], 'lanterns', Color(0xFFFFF3E0), Color(0xFFFFE0B2)),
   'mexican': _RoomPlan('iron', [-1.8, 0.3, 2.0], 'cactus', Color(0xFFFFF3E0), Color(0xFFFFCCBC)),
   'truck': _RoomPlan('plastic', [-1.6, 1.6], 'menu', Color(0xFFECEFF1), Color(0xFFCFD8DC)),
-  'poseidon': _RoomPlan('booth', [-1.8, 0.2, 2.0], 'tank', Color(0xFFE1F5FE), Color(0xFFB3E5FC)),
+  'poseidon': _RoomPlan('marble', [-1.8, 0.2, 2.0], 'tank', Color(0xFFE1F5FE), Color(0xFFB3E5FC)),
   'goyuhan': _RoomPlan('grill', [-1.9, 0, 1.9], 'hanok', Color(0xFFECEFF1), Color(0xFFB0BEC5)),
   'binhdan': _RoomPlan('mat', [-1.9, 0, 1.9], 'bamboo', Color(0xFFF1E3C6), Color(0xFFE0CDA3)),
 };
@@ -211,7 +211,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       final g = _table(i), sg = _seat(i);
       mark(g.dx - 0.38, g.dy - 0.38, g.dx + 0.34, g.dy + 0.34);
       mark(sg.dx - 0.22, sg.dy - 0.22, sg.dx + 0.18, sg.dy + 0.18);
-      if (_plan.table == 'round' || _plan.table == 'cloth' || _plan.table == 'iron' || _plan.table == 'ming' || _plan.table == 'plastic') mark(g.dx + 0.24, g.dy + 0.24, g.dx + 0.6, g.dy + 0.6);
+      if (_plan.table == 'round' || _plan.table == 'cloth' || _plan.table == 'iron' || _plan.table == 'ming' || _plan.table == 'plastic' || _plan.table == 'marble') mark(g.dx + 0.24, g.dy + 0.24, g.dx + 0.6, g.dy + 0.6);
     }
     for (final d in widget.decos) {
       if (decoById(d.type).wall) continue;
@@ -712,6 +712,8 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
             ..color = const Color(0x22AD1457));
           _flower(c, _p(gx + 0.5, gy + 0.5), _tw * 0.16);
           _flower(c, _p(gx, gy), _tw * 0.07);
+        } else if (!kitchen && plan.table == 'marble') {
+          _marbleTile(c, gx, gy);
         } else if (!kitchen && plan.table == 'ming') {
           _encaustic(c, gx, gy);
         } else if (!kitchen && plan.table == 'iron') {
@@ -756,6 +758,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     _wallWindow(c, 9.0, true, th);
     _wallWindow(c, 7.4, false, th);
     _wallSpecial(c, plan.special, th, t);
+    if (widget.venueId == 'poseidon') _poseidonWalls(c);
     // đồ treo tường (người chơi tự đặt)
     for (final d in widget.decos) {
       final dt = decoById(d.type);
@@ -1226,6 +1229,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
 
   /// Quầy buffet: mỗi khay một món, vạch xanh/đỏ là số phần còn lại
   void _drawBuffet(Canvas c, double t, VTheme th) {
+    if (widget.venueId == 'poseidon') return _islandBuffet(c, t);
     // bàn buffet phủ khăn, rủ diềm; nồi hâm có nắp vòm, chồng đĩa, ly, bát
     final h = _th * 0.95;
     final cloth = widget.venueId == 'poseidon' ? const Color(0xFF16336B) : const Color(0xFF9E1B1B);
@@ -1719,6 +1723,226 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       ..strokeWidth = 1.2);
   }
 
+  // ---- Poseidon: sàn đá cẩm thạch xanh đen, bàn đá đen, ghế bọc da kem lưng cong, quầy buffet đảo
+  static ui.Picture? _marblePic;
+  void _marbleTile(Canvas c, double gx, double gy) {
+    _marblePic ??= () {
+      final rec = ui.PictureRecorder();
+      final k = Canvas(rec);
+      k.drawRect(const Rect.fromLTWH(0, 0, 100, 100), Paint()..color = const Color(0xFF1A2236));
+      final cloud = Paint()..color = const Color(0x332F5BA8);
+      k.drawOval(const Rect.fromLTWH(10, 20, 60, 30), cloud);
+      k.drawOval(const Rect.fromLTWH(45, 55, 50, 30), cloud);
+      final v1 = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6
+        ..color = const Color(0xAA6FA8FF);
+      final v2 = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0x88E0C47A);
+      k.drawPath(Path()
+        ..moveTo(0, 30)
+        ..cubicTo(25, 20, 40, 55, 70, 45)
+        ..cubicTo(85, 40, 92, 70, 100, 75), v1);
+      k.drawPath(Path()
+        ..moveTo(20, 100)
+        ..cubicTo(30, 75, 55, 80, 60, 60), v2);
+      k.drawPath(Path()
+        ..moveTo(60, 0)
+        ..cubicTo(55, 15, 75, 20, 80, 35), v2);
+      return rec.endRecording();
+    }();
+    final o = _p(gx, gy);
+    final a = _tw / 2 / 100, b = _th / 2 / 100;
+    c.save();
+    c.transform(Float64List.fromList([a, b, 0, 0, -a, b, 0, 0, 0, 0, 1, 0, o.dx, o.dy, 0, 1]));
+    c.drawPicture(_marblePic!);
+    c.restore();
+    c.drawPath(_area(gx, gy, gx + 1, gy + 1), Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = const Color(0x33FFFFFF));
+  }
+
+  void _marbleTable(Canvas c, Offset g, double hTop, bool setting) {
+    const sx = 0.42, sy = 0.3;
+    final leg = Paint()
+      ..color = const Color(0xFF151515)
+      ..strokeWidth = 2.6;
+    for (final q in [Offset(g.dx - sx + 0.05, g.dy - sy + 0.05), Offset(g.dx + sx - 0.05, g.dy - sy + 0.05), Offset(g.dx + sx - 0.05, g.dy + sy - 0.05), Offset(g.dx - sx + 0.05, g.dy + sy - 0.05)]) {
+      c.drawLine(_pg(q), _pg(q, hTop), leg);
+    }
+    _box(c, g.dx - sx, g.dy - sy, g.dx + sx, g.dy + sy, _th * 0.08, const Color(0xFF1C1C22), z: hTop - _th * 0.08);
+    c.drawPath(Path()
+      ..moveTo(_pg(Offset(g.dx - 0.3, g.dy + 0.2), hTop).dx, _pg(Offset(g.dx - 0.3, g.dy + 0.2), hTop).dy)
+      ..lineTo(_pg(Offset(g.dx + 0.25, g.dy - 0.22), hTop).dx, _pg(Offset(g.dx + 0.25, g.dy - 0.22), hTop).dy), Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8
+      ..color = const Color(0x88FFFFFF));
+    if (setting) {
+      // khăn lót xanh + ly
+      c.drawPath(_area(g.dx - 0.15, g.dy + 0.02, g.dx + 0.15, g.dy + 0.22, hTop + 0.5), Paint()..color = const Color(0xFF2F6FE0));
+      final gp = _pg(Offset(g.dx + 0.12, g.dy - 0.1), hTop);
+      c.drawLine(gp, gp - Offset(0, _tw * 0.08), Paint()
+        ..color = const Color(0xCCE3F2FD)
+        ..strokeWidth = 1.2);
+      c.drawPath(_poly([gp - Offset(_tw * 0.035, _tw * 0.08), gp - Offset(-_tw * 0.035, _tw * 0.08), gp - Offset(-_tw * 0.045, _tw * 0.2), gp - Offset(_tw * 0.045, _tw * 0.2)]), Paint()..color = const Color(0xAAE3F2FD));
+    }
+  }
+
+  void _curveChair(Canvas c, Offset p, double u, bool fromBack) {
+    const leather = Color(0xFFE6DCCB), shade = Color(0xFFC9BCA5), wood = Color(0xFF3A2A22);
+    final seat = p - Offset(0, u * 0.58);
+    final leg = Paint()
+      ..color = wood
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round;
+    // chân gỗ chữ A
+    for (final sd in const [-1.0, 1.0]) {
+      c.drawLine(seat + Offset(sd * u * 0.34, u * 0.08), p + Offset(sd * u * 0.46, 0), leg);
+      c.drawLine(seat + Offset(sd * u * 0.24, u * 0.08), p + Offset(sd * u * 0.12, -u * 0.06), leg);
+    }
+    final seatR = RRect.fromRectAndRadius(Rect.fromCenter(center: seat, width: u * 0.96, height: u * 0.36), Radius.circular(u * 0.16));
+    final backR = Rect.fromCenter(center: seat - Offset(0, u * (fromBack ? 0.3 : 0.42)), width: u * 1.0, height: u * 0.5);
+    void back() {
+      final path = Path()..addArc(backR, pi, pi);
+      path.lineTo(backR.right - u * 0.12, backR.center.dy + u * 0.12);
+      path.arcToPoint(Offset(backR.left + u * 0.12, backR.center.dy + u * 0.12), radius: Radius.elliptical(u * 0.4, u * 0.18), clockwise: true);
+      path.close();
+      c.drawPath(path, Paint()..color = fromBack ? shade : leather);
+      c.drawPath(path, _outline..strokeWidth = 1);
+    }
+
+    if (!fromBack) back();
+    c.drawRRect(seatR, Paint()..color = leather);
+    c.drawRRect(seatR, _outline..strokeWidth = 1);
+    if (fromBack) back();
+  }
+
+  void _poseidonWalls(Canvas c) {
+    // tường trái: cửa kính lớn + rèm xám
+    for (var gy = 3.2; gy < _g - 1.2; gy += 1.5) {
+      final a0 = _p(0, gy, _wallH * 0.95), a1 = _p(0, gy + 1.1, _wallH * 0.95);
+      final b0 = _p(0, gy, _wallH * 0.2), b1 = _p(0, gy + 1.1, _wallH * 0.2);
+      c.drawPath(_poly([a0, a1, b1, b0]), Paint()..color = const Color(0xFFDDEBF5));
+      final cu0 = _p(0, gy + 1.1, _wallH * 0.98), cu1 = _p(0, gy + 1.45, _wallH * 0.98);
+      c.drawPath(_poly([cu0, cu1, _p(0, gy + 1.45, _wallH * 0.18), _p(0, gy + 1.1, _wallH * 0.18)]), Paint()..color = const Color(0xFFB8BEC6));
+      c.drawLine(Offset.lerp(cu0, cu1, 0.5)!, Offset.lerp(_p(0, gy + 1.1, _wallH * 0.18), _p(0, gy + 1.45, _wallH * 0.18), 0.5)!, Paint()
+        ..color = const Color(0xFF9AA2AC)
+        ..strokeWidth = 1);
+    }
+    // tường phải: hoạ tiết sóng + cột gỗ vòm
+    final wave = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..color = const Color(0x55FFFFFF);
+    for (var k = 0; k < 3; k++) {
+      final z = _wallH * (0.45 + k * 0.14);
+      final path = Path();
+      for (var x = 7.0; x <= 12.5; x += 0.25) {
+        final q = _p(x, 0, z + sin(x * 2.2 + k) * _wallH * 0.05);
+        if (x == 7.0) {
+          path.moveTo(q.dx, q.dy);
+        } else {
+          path.lineTo(q.dx, q.dy);
+        }
+      }
+      c.drawPath(path, wave);
+    }
+    for (final gx in [6.8, 12.8]) {
+      final a = _p(gx, 0.02, 0), b = _p(gx + 0.45, 0.02, 0);
+      final h = _wallH * 0.95;
+      final path = Path()
+        ..moveTo(a.dx, a.dy)
+        ..lineTo(b.dx, b.dy)
+        ..lineTo(b.dx, b.dy - h * 0.85)
+        ..quadraticBezierTo((a.dx + b.dx) / 2, a.dy - h * 1.05, a.dx, a.dy - h * 0.85)
+        ..close();
+      c.drawPath(path, Paint()..color = const Color(0xFFD9CBB4));
+      c.drawLine(b - Offset(0, 2), b - Offset(0, h * 0.85), Paint()
+        ..color = const Color(0xAAFFE082)
+        ..strokeWidth = 1.5);
+    }
+  }
+
+  void _islandBuffet(Canvas c, double t) {
+    // quầy đảo gỗ, mặt trước ốp kính khối sáng đèn, khay gỗ tròn đựng món, chồng đĩa, đèn lồng treo
+    final h = _th * 0.95;
+    const wood = Color(0xFF5B3A26);
+    _box(c, 1.25, 2.6, 6.2, 3.25, h, const Color(0xFF3B2A20));
+    final l0 = _p(1.25, 3.25, 0), l1 = _p(6.2, 3.25, 0);
+    c.drawPath(_poly([l0, l1, l1 - Offset(0, h), l0 - Offset(0, h)]), Paint()..color = wood);
+    for (final a in const [0.06, 0.38, 0.7]) {
+      final p0 = Offset.lerp(l0, l1, a)!, p1 = Offset.lerp(l0, l1, a + 0.24)!;
+      final up0 = Offset(0, h * 0.12), up1 = Offset(0, h * 0.85);
+      final panel = _poly([p0 - up0, p1 - up0, p1 - up1, p0 - up1]);
+      c.drawPath(panel, Paint()..color = const Color(0xFFE9F0C8));
+      final grid = Paint()
+        ..color = const Color(0x55A0A070)
+        ..strokeWidth = 0.8;
+      for (var k = 1; k < 6; k++) {
+        c.drawLine(Offset.lerp(p0, p1, k / 6)! - up0, Offset.lerp(p0, p1, k / 6)! - up1, grid);
+      }
+      for (var k = 1; k < 4; k++) {
+        final z = Offset(0, h * (0.12 + 0.73 * k / 4));
+        c.drawLine(p0 - z, p1 - z, grid);
+      }
+    }
+    c.drawPath(_area(1.25, 2.6, 6.2, 3.25, h), Paint()..color = const Color(0xFF2A1E18));
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = _ink;
+    // chồng đĩa trắng
+    for (final o in const [Offset(1.5, 3.05), Offset(5.95, 3.05)]) {
+      final ps = _pg(o, h);
+      for (var k = 0; k < 5; k++) {
+        final r = Rect.fromCenter(center: ps - Offset(0, k * _th * 0.07), width: _tw * 0.24, height: _th * 0.13);
+        c.drawOval(r, Paint()..color = Colors.white);
+        c.drawOval(r, line);
+      }
+    }
+    final n = widget.trays.length;
+    for (var k = 0; k < n; k++) {
+      final (id, qty) = widget.trays[k];
+      final g = Offset(2.0 + k * (3.7 / max(1, n)) + 0.2, 2.92);
+      final p = _pg(g, h);
+      // khay gỗ tròn
+      final drum = Rect.fromCenter(center: p - Offset(0, _th * 0.12), width: _tw * 0.5, height: _th * 0.3);
+      c.drawRect(Rect.fromLTRB(drum.left, drum.center.dy, drum.right, drum.center.dy + _th * 0.16), Paint()..color = const Color(0xFFB27A44));
+      c.drawOval(drum.shift(Offset(0, _th * 0.16)), Paint()..color = const Color(0xFFB27A44));
+      c.drawOval(drum, Paint()..color = const Color(0xFFD9A066));
+      c.drawOval(drum, line);
+      if (qty > 0) {
+        drawDish(c, id, drum.center - Offset(0, _th * 0.1), _tw * (0.38 + 0.03 * min(qty, 6)), t: t);
+      } else if (sin(t * 6) > 0) {
+        _emoji(c, '❗', drum.center - Offset(0, _th * 0.8), _tw * 0.22);
+      }
+      final bar = Rect.fromCenter(center: p + Offset(0, _th * 0.2), width: _tw * 0.4, height: 4);
+      c.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(3)), Paint()..color = const Color(0x55000000));
+      final f = (qty / 8).clamp(0.0, 1.0).toDouble();
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * f, bar.height), const Radius.circular(3)),
+          Paint()..color = qty <= 2 ? const Color(0xFFFF5252) : const Color(0xFF66BB6A));
+    }
+    // đèn lồng giấy treo trên quầy
+    for (var k = 0; k < 4; k++) {
+      final top = _pg(Offset(1.9 + k * 1.3, 2.9), h + _wallH * 0.95);
+      final lamp = _pg(Offset(1.9 + k * 1.3, 2.9), h + _wallH * 0.45);
+      c.drawLine(top, lamp, Paint()
+        ..color = const Color(0xFF4E342E)
+        ..strokeWidth = 1);
+      final r = Rect.fromCenter(center: lamp + Offset(0, _tw * 0.12), width: _tw * 0.22, height: _tw * 0.26);
+      c.drawRRect(RRect.fromRectAndRadius(r.inflate(_tw * 0.05), Radius.circular(_tw * 0.1)), Paint()..color = const Color(0x33FFD180));
+      c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(_tw * 0.06)), Paint()..color = const Color(0xFFFFE0A3));
+      for (var j = 1; j < 4; j++) {
+        c.drawLine(Offset(r.left, r.top + r.height * j / 4), Offset(r.right, r.top + r.height * j / 4), Paint()
+          ..color = const Color(0x66A1887F)
+          ..strokeWidth = 0.8);
+      }
+    }
+  }
+
   void _tubChair(Canvas c, Offset p, double u, bool fromBack) {
     const shell = Color(0xFFB9774A), inner = Color(0xFF6D3B22), cushion = Color(0xFFD99A66), leg = Color(0xFFE8B98A);
     final seat = p - Offset(0, u * 0.62);
@@ -1801,6 +2025,8 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       _cubeStool(c, sg);
     } else if (kind == 'plastic') {
       _plasticStool(c, sg);
+    } else if (kind == 'marble') {
+      _curveChair(c, _pg(sg), _tw * 0.44, false);
     } else {
       _box(c, sg.dx - 0.15, sg.dy - 0.15, sg.dx + 0.15, sg.dy + 0.15, _th * 0.4, _lt(th.wood, 0.1));
     }
@@ -1838,6 +2064,9 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
         break;
       case 'ming':
         _mingTable(c, g, hTop, cu == null && !tb.dirty);
+        break;
+      case 'marble':
+        _marbleTable(c, g, hTop, cu == null && !tb.dirty);
         break;
       case 'plastic':
         _box(c, g.dx - 0.3, g.dy - 0.3, g.dx + 0.3, g.dy + 0.3, hTop, const Color(0xFF5AA9E6));
@@ -1887,6 +2116,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
       if (kind == 'round') _tubChair(c, _pg(fg), _tw * 0.42, true);
       if (kind == 'cloth') _woodChair(c, _pg(fg), _tw * 0.42, true);
       if (kind == 'plastic') _plasticStool(c, fg);
+      if (kind == 'marble') _curveChair(c, _pg(fg), _tw * 0.44, true);
       if (kind == 'ming') _cubeStool(c, fg);
       if (kind == 'iron') _ironChair(c, _pg(fg), _tw * 0.42, true);
     });
