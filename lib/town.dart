@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'data.dart';
+import 'pixel.dart';
 import 'scene.dart' show drawPerson, Look, webTick;
 
 // ------------------------------------------------------------------ hệ toạ độ
@@ -430,23 +431,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
   }
 
   void _tree(Canvas c, double gx, double gy, int kind, double rnd) {
-    final p = _iso(gx, gy);
-    final s = 15.0 + rnd * 5;
-    c.drawOval(Rect.fromCenter(center: p, width: s * 1.8, height: s * 0.7), Paint()..color = const Color(0x33000000));
-    c.drawRect(Rect.fromCenter(center: p - Offset(0, s * 0.45), width: s * 0.28, height: s * 0.9), Paint()..color = const Color(0xFF795548));
-    final top = p - Offset(0, s * 1.35);
-    final leaf = kind == 2 ? const Color(0xFFF48FB1) : const Color(0xFF43A047);
-    final leaf2 = kind == 2 ? const Color(0xFFF8BBD0) : const Color(0xFF66BB6A);
-    c.drawCircle(top, s * 0.9, Paint()..color = leaf);
-    c.drawCircle(top + Offset(-s * 0.4, -s * 0.3), s * 0.55, Paint()..color = leaf2);
-    c.drawCircle(top + Offset(s * 0.45, s * 0.1), s * 0.5, Paint()..color = _dk(leaf, 0.1));
-    if (kind == 1) {
-      // trái cam chín
-      for (var k = 0; k < 5; k++) {
-        final a = k * 1.3;
-        c.drawCircle(top + Offset(cos(a) * s * 0.55, sin(a) * s * 0.45), s * 0.13, Paint()..color = const Color(0xFFFFA726));
-      }
-    }
+    drawPixelTree(c, _iso(gx, gy), 34.0 + rnd * 12, kind: kind, alt: kind == 0 && rnd > 0.55);
   }
 
   void _fountain(Canvas c, double gx, double gy) {
@@ -1044,12 +1029,12 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     const carCols = [Color(0xFFE53935), Color(0xFF1E88E5), Color(0xFFFDD835), Color(0xFF8E24AA)];
     for (var k = 0; k < 2; k++) {
       final gx = (t * 1.1 + k * 11) % (_n + 2) - 1;
-      _car(c, gx, _r1 - 0.32, true, carCols[k]);
+      _car(c, gx, _r1 - 0.32, true, carCols[k], type: k == 0 ? 'sedan' : 'sport');
       final gx2 = _n + 1 - ((t * 0.9 + k * 9) % (_n + 2));
-      _car(c, gx2, _r3 + 0.32, true, carCols[k + 2]);
+      _car(c, gx2, _r3 + 0.32, true, carCols[k + 2], fwd: false, type: k == 0 ? 'pickup' : 'sedan');
     }
     final gy = (t * 0.8) % (_n + 2) - 1;
-    _car(c, _r2 + 0.32, gy, false, const Color(0xFF43A047));
+    _car(c, _r2 + 0.32, gy, false, const Color(0xFFFF8F1F), type: 'pickup');
     // người đi bộ trên vỉa hè
     for (var k = 0; k < 6; k++) {
       final fwd = k.isEven;
@@ -1122,11 +1107,10 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     }
   }
 
-  void _car(Canvas c, double g, double lane, bool alongX, Color col) {
-    final x0 = alongX ? g - 0.45 : lane - 0.25, x1 = alongX ? g + 0.45 : lane + 0.25;
-    final y0 = alongX ? lane - 0.25 : g - 0.45, y1 = alongX ? lane + 0.25 : g + 0.45;
-    _box(c, x0, y0, x1, y1, 7, col, _dk(col, 0.25), _dk(col, 0.1));
-    _box(c, x0 + (alongX ? 0.2 : 0.05), y0 + (alongX ? 0.05 : 0.2), x1 - (alongX ? 0.15 : 0.05), y1 - (alongX ? 0.05 : 0.15), 13, const Color(0xFFB3E5FC), _dk(col, 0.2), _dk(col, 0.05));
+  void _car(Canvas c, double g, double lane, bool alongX, Color col, {bool fwd = true, String type = 'sedan'}) {
+    final p = alongX ? _iso(g, lane) : _iso(lane, g);
+    c.drawOval(Rect.fromCenter(center: p, width: 30, height: 8), Paint()..color = const Color(0x33000000));
+    drawPixelSprite(c, type, p + const Offset(0, 2), type == 'sport' ? 15 : 17, faceRight: alongX ? fwd : !fwd, recolor: carColors(col));
   }
 
   void _pin(Canvas c, Offset p) {

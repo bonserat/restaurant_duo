@@ -893,11 +893,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     c.drawPath(_poly([b, r, r + const Offset(0, 6), b + const Offset(0, 6)]), Paint()..color = const Color(0xFFC8C0B0));
     // cây + đèn đường bên ngoài
     for (final g in const [Offset(13.6, 3.0), Offset(13.6, 8.5), Offset(3.5, 13.6), Offset(9.0, 13.6)]) {
-      final q = _pg(g);
-      c.drawOval(Rect.fromCenter(center: q, width: _tw * 0.8, height: _th * 0.5), Paint()..color = const Color(0x33000000));
-      c.drawRect(Rect.fromCenter(center: q - Offset(0, _tw * 0.25), width: _tw * 0.1, height: _tw * 0.5), Paint()..color = const Color(0xFF795548));
-      c.drawCircle(q - Offset(0, _tw * 0.65), _tw * 0.38, Paint()..color = const Color(0xFF43A047));
-      c.drawCircle(q - Offset(_tw * 0.15, _tw * 0.78), _tw * 0.22, Paint()..color = const Color(0xFF66BB6A));
+      drawPixelTree(c, _pg(g), _tw * 1.15, alt: g.dx > 13 && g.dy > 8);
     }
   }
 

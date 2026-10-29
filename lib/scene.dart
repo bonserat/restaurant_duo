@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'data.dart';
 import 'dishes.dart';
 import 'models.dart';
+import 'pixel.dart';
 import 'sound.dart';
 
 part 'iso_room.dart';
