@@ -450,7 +450,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
         _arr[i] = first ? -10.0 : t;
         var path = [..._route(_door, _seat(i) + const Offset(0.45, 0.45)), _seat(i)];
         _pickLen.remove(i);
-        if (widget.buffet && widget.trays.isNotEmpty) {
+        if (widget.buffet && widget.trays.any((x) => x.$1 == tb[i].c!.recipe.id)) {
           // buffet: ghé quầy lấy món rồi mới về bàn
           final rid = tb[i].c!.recipe.id;
           final n0 = widget.trays.length;

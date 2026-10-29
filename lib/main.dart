@@ -1197,7 +1197,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
 
     if (buffet) {
-      for (final t in tables) {
+      for (var ti = 0; ti < tables.length; ti++) {
+        final t = tables[ti];
         final c = t.c;
         if (c != null && c.st == 0) {
           final k = trayIds.indexOf(c.recipe.id);
@@ -1206,7 +1207,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             c.st = 2;
             c.quality = trayQ[k];
             c.taste = 'Vừa';
-            c.eat = 4;
+            c.eat = 12; // đi lấy món, về bàn rồi ngồi ăn thong thả
+          } else if (k < 0) {
+            // món gọi riêng (không có trên quầy): vào hàng order để bếp nấu, xong mang ra bàn
+            c.st = 1;
+            c.ticketId = ++ticketSeq;
+            queue.add(Ticket(c.ticketId, ti, c.recipe));
           }
         }
         if (t.dirty && t.dirtyT > 3) t.dirty = false; // nhân viên buffet tự dọn
@@ -1543,7 +1549,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         c.st = 2;
         c.quality = d.quality;
         c.taste = d.taste;
-        c.eat = 4;
+        c.eat = 6;
       } else {
         say('Sai bàn rồi!');
       }
@@ -1586,6 +1592,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         trayQty[k] = min(trayMax, old + 5);
         trayQ[k] = old == 0 ? q : (trayQ[k] * old + q * 5) / (old + 5);
         say('🍱 Đã châm thêm ${s.t!.recipe.name} ra quầy buffet');
+      }
+      s.clear();
+    } else if (s.done && buffet) {
+      // buffet: món gọi riêng mang thẳng ra bàn
+      final ti = s.t!.table;
+      final c = ti < tables.length ? tables[ti].c : null;
+      if (c != null && c.ticketId == s.t!.id) {
+        c.st = 2;
+        c.quality = s.burnt ? min(s.quality, 0.35) : s.quality;
+        c.taste = s.taste;
+        c.eat = 7;
+        say('🍽️ Đã mang ${s.t!.recipe.name} ra bàn ${ti + 1}');
       }
       s.clear();
     } else if (s.done) {
@@ -1664,7 +1682,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     for (var si = 0; si < stations.length; si++) {
       final s = stations[si];
       if (s.t == null) continue;
-      if (s.done && (s.t!.table < 0 || counter.length < 6)) {
+      if (s.done && (s.t!.table < 0 || buffet || counter.length < 6)) {
         onStation(si);
         activeStation = keep;
         return;
