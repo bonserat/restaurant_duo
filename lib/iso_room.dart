@@ -1159,14 +1159,6 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     c.drawPath(_poly([s0 + u, s1 + u, s1, s0]), Paint()..color = const Color(0x55FFE082));
     final r0 = _p(6.2, 3.25, h * 0.7), r1 = _p(6.2, 2.6, h * 0.7);
     c.drawPath(_poly([r0, r1, r1 - u, r0 - u]), Paint()..color = _dk(wd, 0.1));
-    _box(c, 3.2, 3.25, 4.2, 3.33, h * 1.04, wd);
-    final lg = Offset.lerp(_p(3.2, 3.33, h * 0.62), _p(4.2, 3.33, h * 0.62), 0.5)!;
-    c.drawCircle(lg, _tw * 0.15, Paint()..color = Colors.white);
-    c.drawCircle(lg, _tw * 0.15, Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = _dk(wd, 0.4));
-    _emoji(c, '☕', lg, _tw * 0.16);
     // ly giấy dọc mép sau
     for (var k = 0; k < 5; k++) {
       final cp = _pg(Offset(1.55 + k * 0.22, 2.7), h);

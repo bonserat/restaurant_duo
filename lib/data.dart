@@ -143,7 +143,7 @@ const venues = [
     Recipe('gy_bibim', 'Cơm trộn Bibimbap', '🍚', ['rice', 'egg', 'mushroom', 'kimchi'], 7, 110, 300),
     Recipe('gy_kimchi', 'Canh kim chi hầm', '🍲', ['kimchi', 'porkb', 'mushroom'], 8, 120, 550),
   ]),
-  Venue('binhdan', 'Bình Dần – Chim đồng, heo tộc', '🐦', 1000, 10, 0.95, [
+  Venue('binhdan', 'Quán nhậu Bình Dân – Chim đồng, heo tộc', '🐦', 1000, 10, 0.95, [
     Ing('bird', '🐦', 'Chim đồng', 3),
     Ing('pig', '🐖', 'Heo tộc', 3),
     Ing('lime', '🍃', 'Lá chanh', 1),

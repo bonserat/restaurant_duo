@@ -660,57 +660,173 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     var chimney = _iso(x0 + 0.5, y0 + 0.4, 50);
     switch (vid) {
       case 'cafe':
-        // quán cà phê kiểu Âu: tường kem, mái ngói nâu 2 dốc, ô dù ngoài hiên
-        const h = 30.0;
-        _walls(c, x0, y0, x1, y1, h, g(lk0.wall));
-        _windows(c, x0, y0, x1, y1, 9, 22, g(lk0.trim), night);
-        _door(c, x0, x1, y1, h, g(const Color(0xFF6D4C41)), g(lk0.awning), owned ? v.emoji : '🔒');
-        _gable(c, x0, y0, x1, y1, h, 20, g(const Color(0xFFA1503A)), g(_lt(lk0.wall, 0.1)));
-        for (final gx in [x0 + 0.3, x1 - 0.3]) {
-          final p = _iso(gx, y1 + 0.55);
-          c.drawLine(p, p - const Offset(0, 16), Paint()
-            ..color = const Color(0xFF6D4C41)
-            ..strokeWidth = 1.6);
-          c.drawOval(Rect.fromCenter(center: p - const Offset(0, 17), width: 22, height: 8), Paint()..color = g(lk0.awning));
+        // nhà gạch đỏ, mái ngói đen, mái hiên sọc đỏ-kem, biển hiệu, ghế băng, bảng phấn
+        const h = 32.0;
+        const brick = Color(0xFFB5643F);
+        c.drawPath(_area(x0 - 0.25, y0 - 0.25, x1 + 0.35, y1 + 0.5), Paint()..color = g(const Color(0xFFB8B0A4)));
+        _walls(c, x0, y0, x1, y1, h, g(brick));
+        final bl = Paint()
+          ..color = const Color(0x30000000)
+          ..strokeWidth = 0.8;
+        for (var z = 4.0; z < h; z += 4) {
+          c.drawLine(_iso(x0, y1, z), _iso(x1, y1, z), bl);
+          c.drawLine(_iso(x1, y1, z), _iso(x1, y0, z), bl);
         }
-        roofTop = _iso(cx, cy, h + 26);
-        chimney = _iso(x0 + 0.6, cy, h + 20);
+        final warm = Paint()..color = night ? const Color(0xFFFFD54F) : const Color(0xFFFFE9B0);
+        final wf = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6
+          ..color = g(const Color(0xFF5D3A1A));
+        for (final pth in [_onL(y1, x0 + 0.25, cx - 0.3, 4, 19), _onR(x1, y0 + 0.3, y1 - 0.3, 4, 21)]) {
+          c.drawPath(pth, warm);
+          c.drawPath(pth, wf);
+        }
+        c.drawPath(_onL(y1, cx - 0.05, cx + 0.5, 0, 20), Paint()..color = g(const Color(0xFF8D5A2B)));
+        c.drawPath(_onL(y1, cx + 0.08, cx + 0.37, 11, 17), warm);
+        // mái hiên sọc
+        final aw0 = x0 + 0.15, aw1 = cx - 0.2;
+        for (var k = 0; k < 6; k++) {
+          final a = aw0 + (aw1 - aw0) * k / 6, b = aw0 + (aw1 - aw0) * (k + 1) / 6;
+          c.drawPath(_pg([_iso(a, y1, 22), _iso(b, y1, 22), _iso(b, y1 + 0.5, 14), _iso(a, y1 + 0.5, 14)]), Paint()..color = g(k.isEven ? const Color(0xFFB71C1C) : const Color(0xFFFFF3D6)));
+        }
+        // biển hiệu
+        c.drawPath(_onL(y1, x0 + 0.15, x1 - 0.15, 24, 31), Paint()..color = g(const Color(0xFF8E1B1B)));
+        _txt(c, owned ? 'COFFEE' : '🔒', _iso(cx, y1, 27.5), 7, const Color(0xFFFFF3D6));
+        _gable(c, x0, y0, x1, y1, h, 24, g(const Color(0xFF3E3A44)), g(const Color(0xFFA9573A)), over: 0.22);
+        // đồng hồ trên đầu hồi + ống khói
+        final ck = _iso(x1, cy, h + 9);
+        c.drawCircle(ck, 5, Paint()..color = Colors.white);
+        c.drawCircle(ck, 5, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.3
+          ..color = const Color(0xFF3E2723));
+        c.drawLine(ck, ck - const Offset(0, 3.5), Paint()..color = const Color(0xFF3E2723));
+        final chm = _iso(x0 + 0.5, y0 + 0.5, h + 14);
+        c.drawRect(Rect.fromLTWH(chm.dx - 4, chm.dy - 10, 8, 16), Paint()..color = g(const Color(0xFF8D4A2F)));
+        // biển treo ☕
+        final hs = _iso(x1 + 0.15, y1 - 0.25, 22);
+        c.drawLine(hs, hs + const Offset(8, 0), Paint()
+          ..color = const Color(0xFF3E2723)
+          ..strokeWidth = 1.5);
+        c.drawRect(Rect.fromLTWH(hs.dx + 3, hs.dy + 1, 10, 9), Paint()..color = g(const Color(0xFF6D4C41)));
+        // ghế băng, chậu cây, bảng phấn
+        _box(c, x0 + 0.2, y1 + 0.2, x0 + 0.95, y1 + 0.4, 5, g(const Color(0xFF8D5A2B)), g(const Color(0xFF6D4321)), g(const Color(0xFF7A4B26)));
+        for (final pp in [_iso(x0 + 0.05, y1 + 0.35), _iso(cx + 0.75, y1 + 0.35)]) {
+          c.drawRect(Rect.fromCenter(center: pp - const Offset(0, 3), width: 7, height: 6), Paint()..color = const Color(0xFFB0532F));
+          c.drawCircle(pp - const Offset(0, 9), 5.5, Paint()..color = g(const Color(0xFF43A047)));
+        }
+        final cb = _iso(x1 + 0.4, y1 + 0.1);
+        c.drawPath(_pg([cb, cb + const Offset(8, 0), cb + const Offset(6, -16), cb + const Offset(2, -16)]), Paint()..color = const Color(0xFF263238));
+        roofTop = _iso(cx, cy, h + 30);
+        chimney = chm - const Offset(0, 12);
         break;
       case 'bakery':
-        // tiệm bánh như ngôi nhà búp bê: tường hồng, mái dốc cao, ống khói
-        const h = 28.0;
-        _walls(c, x0, y0, x1, y1, h, g(lk0.wall));
-        _windows(c, x0, y0, x1, y1, 8, 20, g(Colors.white), night);
-        _door(c, x0, x1, y1, h, g(const Color(0xFFB0577A)), g(lk0.awning), owned ? v.emoji : '🔒');
-        final ch = _iso(x0 + 0.6, y0 + 0.5, h + 18);
-        c.drawRect(Rect.fromLTWH(ch.dx - 4, ch.dy - 14, 8, 18), Paint()..color = g(const Color(0xFF8D6E63)));
-        _gable(c, x0, y0, x1, y1, h, 28, g(const Color(0xFFE57399)), g(_lt(lk0.wall, 0.2)));
-        roofTop = _iso(cx, cy, h + 34);
-        chimney = ch - const Offset(0, 16);
+        // nhà góc phố trắng kiểu Âu: phào chỉ, hàng bi trên mái, mái hiên xanh lượn sóng, bàn ngoài trời
+        const h = 32.0;
+        _box(c, x0 - 0.3, y0 - 0.3, x1 + 0.45, y1 + 0.6, 3, g(const Color(0xFFE6E0D6)), g(const Color(0xFFC9C2B6)), g(const Color(0xFFD6CFC3)));
+        const wall = Color(0xFFF7F4EE);
+        _walls(c, x0, y0, x1, y1, h, g(wall), z: 3);
+        final gl = Paint()..color = night ? const Color(0xFFFFD54F) : const Color(0xFFFFE6C2);
+        final wf = Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = g(const Color(0xFF9A6236));
+        for (final pth in [_onL(y1, x0 + 0.2, cx - 0.3, 6, 21), _onL(y1, cx - 0.1, cx + 0.45, 3, 22), _onL(y1, cx + 0.65, x1 - 0.2, 6, 21), _onR(x1, y0 + 0.25, y1 - 0.25, 6, 21)]) {
+          c.drawPath(pth, gl);
+          c.drawPath(pth, wf);
+        }
+        // phào chỉ + mái bằng + hàng bi
+        _walls(c, x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, 7, g(const Color(0xFFEDE5D8)), z: h + 3);
+        c.drawPath(_area(x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, h + 10), Paint()..color = g(const Color(0xFFF3ECE0)));
+        final ball = Paint()..color = g(const Color(0xFFF1DFC4));
+        for (var k = 0; k <= 8; k++) {
+          c.drawCircle(_iso(x0 - 0.12 + (x1 - x0 + 0.24) * k / 8, y1 + 0.12, h + 12), 2.4, ball);
+        }
+        for (var k = 0; k < 5; k++) {
+          c.drawCircle(_iso(x1 + 0.12, y0 - 0.12 + (y1 - y0 + 0.24) * k / 5, h + 12), 2.4, ball);
+        }
+        // mái hiên xanh lượn sóng 2 mặt
+        final blue = g(const Color(0xFF86C9E6));
+        void awning(List<Offset> q) {
+          c.drawPath(_pg(q), Paint()..color = blue);
+          for (var k = 1; k < 6; k++) {
+            c.drawLine(Offset.lerp(q[0], q[1], k / 6)!, Offset.lerp(q[3], q[2], k / 6)!, Paint()
+              ..color = _lt(blue, 0.35)
+              ..strokeWidth = 1);
+          }
+          for (var k = 0; k < 8; k++) {
+            c.drawCircle(Offset.lerp(q[3], q[2], (k + 0.5) / 8)!, 2.6, Paint()..color = blue);
+          }
+        }
+        awning([_iso(x1, y0 + 0.15, 25), _iso(x1, y1 - 0.15, 25), _iso(x1 + 0.6, y1 - 0.15, 16), _iso(x1 + 0.6, y0 + 0.15, 16)]);
+        awning([_iso(x0 + 0.1, y1, 25), _iso(x1 - 0.1, y1, 25), _iso(x1 - 0.1, y1 + 0.6, 16), _iso(x0 + 0.1, y1 + 0.6, 16)]);
+        // đèn tường + biển tròn
+        for (final lp in [_iso(x0 + 0.08, y1, 18), _iso(x1, y1 - 0.08, 18)]) {
+          c.drawRect(Rect.fromCenter(center: lp, width: 4, height: 7), Paint()..color = const Color(0xFF37474F));
+          c.drawRect(Rect.fromCenter(center: lp, width: 2.2, height: 4), Paint()..color = night ? const Color(0xFFFFF59D) : const Color(0xFFFFE0B2));
+        }
+        final sg = _iso(cx - 0.6, y1 + 0.02, 28);
+        c.drawOval(Rect.fromCenter(center: sg, width: 18, height: 12), Paint()..color = g(const Color(0xFFA0643A)));
+        _txt(c, owned ? v.emoji : '🔒', sg, 7, Colors.white);
+        // bàn ghế ngoài trời + chậu cây
+        for (final tg in [Offset(x1 + 0.35, y0 + 0.5), Offset(x1 + 0.35, cy + 0.4)]) {
+          final tp0 = _iso(tg.dx, tg.dy);
+          for (final dx in const [-6.0, 6.0]) {
+            c.drawRect(Rect.fromLTWH(tp0.dx + dx - 2, tp0.dy - 8, 4, 8), Paint()..color = g(const Color(0xFF6D4321)));
+          }
+          c.drawLine(tp0, tp0 - const Offset(0, 9), Paint()
+            ..color = const Color(0xFF37474F)
+            ..strokeWidth = 1.5);
+          c.drawOval(Rect.fromCenter(center: tp0 - const Offset(0, 9), width: 12, height: 5), Paint()..color = Colors.white);
+        }
+        for (final pp in [_iso(x0 - 0.1, y1 + 0.4), _iso(cx + 0.55, y1 + 0.45)]) {
+          c.drawRect(Rect.fromCenter(center: pp - const Offset(0, 3), width: 8, height: 7), Paint()..color = const Color(0xFF5D4037));
+          c.drawCircle(pp - const Offset(0, 9), 5, Paint()..color = g(const Color(0xFF558B2F)));
+        }
+        roofTop = _iso(cx, cy, h + 30);
+        chimney = _iso(x0 + 0.5, y0 + 0.4, h + 10);
         break;
       case 'chinese':
-        // lầu 2 tầng mái cong đỏ, cột đỏ, đèn lồng
-        const h = 24.0;
-        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFFFF1D6)));
-        for (final gx in [x0, x0 + (x1 - x0) / 3, x0 + (x1 - x0) * 2 / 3, x1]) {
-          final p = _iso(gx, y1);
-          c.drawLine(p, p - const Offset(0, h), Paint()
-            ..color = g(const Color(0xFFC62828))
-            ..strokeWidth = 3);
+        // một tầng, mái cong vút màu cam lớn, cột đỏ, vách song cửa sáng đèn, hàng đèn lồng
+        const h = 26.0;
+        _box(c, x0 - 0.3, y0 - 0.3, x1 + 0.3, y1 + 0.55, 4, g(const Color(0xFFEDEAE4)), g(const Color(0xFFC9C3B8)), g(const Color(0xFFD6D0C5)));
+        _walls(c, x0, y0, x1, y1, h, g(const Color(0xFFE98A2E)), z: 4);
+        final lat = Paint()
+          ..color = g(const Color(0xFF8A2A12))
+          ..strokeWidth = 1.2;
+        void lattice(bool left, double a, double b) {
+          c.drawPath(left ? _onL(y1, a, b, 8, h) : _onR(x1, a, b, 8, h), Paint()..color = night ? const Color(0xFFFFC14D) : g(const Color(0xFFF6B04F)));
+          for (var k = 1; k < 6; k++) {
+            final m = a + (b - a) * k / 6;
+            c.drawLine(left ? _iso(m, y1, 8) : _iso(x1, m, 8), left ? _iso(m, y1, h) : _iso(x1, m, h), lat);
+          }
+          for (var z = 11.0; z < h; z += 3.5) {
+            c.drawLine(left ? _iso(a, y1, z) : _iso(x1, a, z), left ? _iso(b, y1, z) : _iso(x1, b, z), lat);
+          }
         }
-        _windows(c, x0, y0, x1, y1, 8, 18, g(const Color(0xFFC62828)), night);
-        _door(c, x0, x1, y1, h, g(const Color(0xFFB71C1C)), g(const Color(0xFFFFC107)), owned ? v.emoji : '🔒');
-        _hip(c, x0, y0, x1, y1, h, 10, g(const Color(0xFFC62828)), over: 0.3, ridge: 0.2, curve: 5);
-        final u0 = x0 + 0.6, u1 = x1 - 0.6, v0 = y0 + 0.5, v1 = y1 - 0.5;
-        _walls(c, u0, v0, u1, v1, 14, g(const Color(0xFFFFE0B2)), z: h + 6);
-        _windows(c, u0, v0, u1, v1, h + 9, h + 17, g(const Color(0xFFC62828)), night, skipDoor: false);
-        _hip(c, u0, v0, u1, v1, h + 20, 12, g(const Color(0xFFD32F2F)), over: 0.35, ridge: 0.25, curve: 5);
-        for (final gx in [x0 + 0.2, x1 - 0.2]) {
-          final p = _iso(gx, y1 + 0.25, h - 4);
-          c.drawOval(Rect.fromCenter(center: p, width: 8, height: 10), Paint()..color = g(const Color(0xFFFF5252)));
+        lattice(true, x0 + 0.25, cx - 0.5);
+        lattice(true, cx + 0.5, x1 - 0.25);
+        lattice(false, y0 + 0.3, y1 - 0.3);
+        c.drawPath(_onL(y1, cx - 0.38, cx + 0.38, 4, h + 2), Paint()..color = g(const Color(0xFFB23A1E)));
+        c.drawLine(_iso(cx, y1, 4), _iso(cx, y1, h + 2), lat);
+        final col = Paint()
+          ..color = g(const Color(0xFFC0392B))
+          ..strokeWidth = 4;
+        for (final gx in [x0, cx - 0.45, cx + 0.45, x1]) {
+          c.drawLine(_iso(gx, y1, 4), _iso(gx, y1, h + 4), col);
         }
-        roofTop = _iso(cx, cy, h + 38);
-        chimney = _iso(u0 + 0.2, v0, h + 30);
+        c.drawLine(_iso(x1, cy, 4), _iso(x1, cy, h + 4), col);
+        _hip(c, x0, y0, x1, y1, h + 4, 24, g(const Color(0xFFE8622A)), over: 0.6, ridge: 0.15, curve: 11);
+        // hàng đèn lồng đỏ dưới mái
+        for (final gx in [x0 + 0.3, x0 + 0.7, x0 + 1.1, x1 - 1.1, x1 - 0.7, x1 - 0.3]) {
+          final top = _iso(gx, y1 + 0.3, h + 4);
+          c.drawLine(top, top + const Offset(0, 5), Paint()..color = const Color(0xFF3E2723));
+          c.drawOval(Rect.fromCenter(center: top + const Offset(0, 10), width: 7, height: 9), Paint()..color = g(const Color(0xFFE53935)));
+          if (night) c.drawOval(Rect.fromCenter(center: top + const Offset(0, 10), width: 3.5, height: 5), Paint()..color = const Color(0xFFFFE082));
+        }
+        _txt(c, owned ? v.emoji : '🔒', _iso(cx, y1, h + 6), 9, Colors.white);
+        roofTop = _iso(cx, cy, h + 42);
+        chimney = _iso(x0 + 0.5, y0 + 0.4, h + 26);
         break;
       case 'mexican':
         // nhà đất nung kiểu Mexico: mái bằng, cửa vòm, mái ngói đỏ trên hiên, xương rồng
@@ -872,30 +988,49 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
   }
 
   void _truckLot(Canvas c, _Lot l, bool owned) {
-    final lk0 = _looks['truck']!;
-    final body = owned ? const Color(0xFFFFFFFF) : const Color(0xFFDADADA);
-    final trim = owned ? const Color(0xFFFFC107) : const Color(0xFF9E9E9E);
-    final aw = owned ? lk0.awning : const Color(0xFFBDBDBD);
-    final x0 = l.x0 + 0.6, x1 = l.x1 - 0.6, y0 = l.y0 + 0.8, y1 = l.y1 - 0.8;
-    // bàn ghế ngoài trời
-    _table(c, l.x0 + 0.5, l.y1 - 0.2, _looks['mexican']!);
-    // thùng xe
-    _box(c, x0, y0, x1 - 0.9, y1, 30, _lt(body, 0.1), _dk(body, 0.12), body);
-    // đầu xe
-    _box(c, x1 - 0.9, y0 + 0.1, x1, y1 - 0.1, 22, trim, _dk(trim, 0.2), _dk(trim, 0.08));
-    // cửa bán + mái hiên
-    final a = _iso(x0 + 0.3, y1, 12), b = _iso(x1 - 1.1, y1, 12);
-    c.drawPath(_quad(a, b, b - const Offset(0, 12), a - const Offset(0, 12)), Paint()..color = owned ? const Color(0xFFFFF59D) : const Color(0xFFBDBDBD));
-    for (var k = 0; k < 6; k++) {
-      final p0 = Offset.lerp(a, b, k / 6)! - const Offset(0, 16), p1 = Offset.lerp(a, b, (k + 1) / 6)! - const Offset(0, 16);
-      c.drawPath(_quad(p0, p1, p1 + const Offset(0, 6), p0 + const Offset(0, 6)), Paint()..color = k.isEven ? aw : Colors.white);
+    // xe bán đồ ăn màu vàng: bảng hiệu nổi trên nóc, cửa bán mở, ghế nhựa xanh
+    Color g(Color x) => owned ? x : _grey(x);
+    final yel = g(const Color(0xFFF7B500));
+    final x0 = l.x0 + 0.5, x1 = l.x1 - 0.5, y0 = l.y0 + 0.9, y1 = l.y1 - 0.9;
+    final xb = x1 - 1.0;
+    _box(c, x0, y0, xb, y1, 30, _lt(yel, 0.1), _dk(yel, 0.12), _dk(yel, 0.04));
+    // cửa bán sáng đèn
+    c.drawPath(_quad(_iso(x0 + 0.2, y1, 12), _iso(xb - 0.2, y1, 12), _iso(xb - 0.2, y1, 27), _iso(x0 + 0.2, y1, 27)), Paint()..color = const Color(0xFFFFF3E0));
+    c.drawPath(_quad(_iso(x0 + 0.3, y1, 13), _iso(x0 + 0.9, y1, 13), _iso(x0 + 0.9, y1, 25), _iso(x0 + 0.3, y1, 25)), Paint()..color = const Color(0xFF263238));
+    for (var k = 0; k < 8; k++) {
+      final p = _iso(x0 + 1.1 + (xb - x0 - 1.4) * k / 7, y1, 20);
+      c.drawCircle(p, 2, Paint()..color = const Color(0xFF4E342E));
+      c.drawCircle(p, 1.2, Paint()..color = owned ? const Color(0xFFFFE082) : const Color(0xFFBDBDBD));
     }
+    c.drawPath(_quad(_iso(x0 + 0.2, y1, 12), _iso(xb - 0.2, y1, 12), _iso(xb - 0.2, y1 + 0.15, 12), _iso(x0 + 0.2, y1 + 0.15, 12)), Paint()..color = _dk(yel, 0.2));
+    // bảng hiệu nổi trên nóc
+    final s0 = _iso(x0, y1 + 0.05, 31), s1 = _iso(xb, y1 + 0.05, 31);
+    c.drawPath(_quad(s0, s1, s1 - const Offset(0, 14), s0 - const Offset(0, 14)), Paint()..color = yel);
+    c.drawPath(_quad(s1, _iso(xb, y0 + 0.3, 31), _iso(xb, y0 + 0.3, 45), s1 - const Offset(0, 14)), Paint()..color = _dk(yel, 0.1));
+    c.drawPath(_quad(s0 - const Offset(0, 14), s1 - const Offset(0, 14), _iso(xb, y0 + 0.3, 45), _iso(x0, y0 + 0.3, 45)), Paint()..color = _lt(yel, 0.15));
+    _txt(c, owned ? 'Food & Drink' : '🔒', Offset.lerp(s0, s1, 0.5)! - const Offset(0, 7), 7.5, const Color(0xFF212121));
+    // cabin
+    _box(c, xb, y0 + 0.1, x1, y1 - 0.05, 21, _lt(yel, 0.1), _dk(yel, 0.12), _dk(yel, 0.04));
+    final glass = Paint()..color = const Color(0xFFB3E5FC);
+    c.drawPath(_quad(_iso(x1, y0 + 0.3, 11), _iso(x1, y1 - 0.25, 11), _iso(x1, y1 - 0.25, 19), _iso(x1, y0 + 0.3, 19)), glass);
+    c.drawPath(_quad(_iso(xb + 0.15, y1 - 0.05, 11), _iso(x1 - 0.2, y1 - 0.05, 11), _iso(x1 - 0.2, y1 - 0.05, 19), _iso(xb + 0.15, y1 - 0.05, 19)), glass);
     // bánh xe
-    for (final gx in [x0 + 0.4, x1 - 0.4]) {
-      c.drawOval(Rect.fromCenter(center: _iso(gx, y1), width: 11, height: 9), Paint()..color = const Color(0xFF263238));
+    for (final gx in [x0 + 0.5, x1 - 0.45]) {
+      final w = _iso(gx, y1);
+      c.drawOval(Rect.fromCenter(center: w, width: 12, height: 10), Paint()..color = const Color(0xFF263238));
+      c.drawOval(Rect.fromCenter(center: w, width: 5, height: 4), Paint()..color = yel);
     }
-    final tp = TextPainter(text: TextSpan(text: owned ? '🍔' : '🔒', style: const TextStyle(fontSize: 16)), textDirection: TextDirection.ltr)..layout();
-    tp.paint(c, _iso((x0 + x1) / 2 - 0.4, (y0 + y1) / 2, 36) - Offset(tp.width / 2, tp.height / 2));
+    // ghế nhựa xanh + giỏ
+    const gr = Color(0xFF7BC67E);
+    for (final o in [Offset(x0 + 0.3, y1 + 0.55), Offset(xb - 0.5, y1 + 0.6)]) {
+      _box(c, o.dx, o.dy, o.dx + 0.25, o.dy + 0.25, 7, g(gr), g(_dk(gr, 0.2)), g(_dk(gr, 0.1)));
+    }
+    _box(c, x1 + 0.1, y1 + 0.15, x1 + 0.4, y1 + 0.45, 10, g(const Color(0xFF8BD06A)), g(const Color(0xFF5FA046)), g(const Color(0xFF6FB255)));
+  }
+
+  void _txt(Canvas c, String s, Offset p, double size, Color col) {
+    final tp = TextPainter(text: TextSpan(text: s, style: TextStyle(fontSize: size, color: col, fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)..layout();
+    tp.paint(c, p - Offset(tp.width / 2, tp.height / 2));
   }
 
   // ======================= PHẦN ĐỘNG =======================

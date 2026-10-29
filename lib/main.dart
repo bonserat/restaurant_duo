@@ -76,7 +76,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _raceBk; // thi đấu: sao lưu quán của mình trong lúc chơi ở "sân chung"
   int endGoal = 0; // mục tiêu của ngày vừa kết thúc
 
-  // ---- Nhà hàng riêng (Poseidon / Goyuhan / Bình Dần) + quảng cáo + lượng khách ----
+  // ---- Nhà hàng riêng (Poseidon / Goyuhan / Quán nhậu Bình Dân) + quảng cáo + lượng khách ----
   String sig = ''; // loại nhà hàng riêng đã mở ('' = chưa)
   int sigRank = 1; // hạng quán 1..5 sao
   Map<String, int> ads = {}; // quảng cáo: id → chạy tới (trước) ngày này
@@ -2937,7 +2937,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ], tint: Pal.berry),
         _guideCard('🏗️', 'Nhà hàng riêng', [
           'Trên bản đồ có 2 lô đất ở hàng đầu: bên trái của bạn, bên phải của người kia.',
-          'Chọn 1 trong 3 kiểu: 🦀 Poseidon buffet cua hải sản, 🥓 Goyuhan buffet nướng Hàn Quốc, 🐦 Bình Dần chim đồng, heo tộc.',
+          'Chọn 1 trong 3 kiểu: 🦀 Poseidon buffet cua hải sản, 🥓 Goyuhan buffet nướng Hàn Quốc, 🐦 Quán nhậu Bình Dân chim đồng, heo tộc.',
           'Nâng hạng quán (1–5 sao): mỗi hạng khách +6%, món đắt hơn 8%. Mở thêm món ở 🛍️ Cửa hàng.',
           'Quán của người kia hiện trên bản đồ của bạn, kèm số sao.',
         ], tint: Pal.coral),
