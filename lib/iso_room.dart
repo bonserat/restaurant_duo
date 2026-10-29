@@ -178,7 +178,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     return _cellCenter(c.$1, c.$2);
   }
   Offset get _door => _uv(_g - 0.2, 0);
-  Offset get _waiterHome => const Offset(4.0, 3.75);
+  Offset get _waiterHome => const Offset(5.3, 3.75);
 
   // ---- tìm đường: lưới 0.5 ô, chặn bàn ghế, quầy, bếp, đồ trang trí
   static const double _cell = 0.5;
@@ -338,7 +338,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
   final List<(Offset, double)> _coins = [];
   int _seedN = 0;
   // phục vụ
-  Offset _wp = const Offset(4.0, 3.75);
+  Offset _wp = const Offset(5.3, 3.75);
   List<Offset> _wPath = [];
   bool _wLeft = false;
   // đầu bếp

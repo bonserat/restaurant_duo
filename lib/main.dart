@@ -2462,7 +2462,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   /// Xem trước phòng chơi bên trong quán (không có khách)
-  Widget roomPreview(String id, int nTables) => ClipRRect(
+  Widget roomPreview(String id, int nTables) {
+    final staffed = isSigVenue(id) && id == sig && biz.hired;
+    final wName = staffed ? (biz.person('waiter')?.$1 ?? 'Phục vụ') : waiterName;
+    final cName = staffed ? (biz.person('chef')?.$1 ?? 'Đầu bếp') : chefName;
+    return ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: SizedBox(
           height: 300,
@@ -2477,10 +2481,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               venueId: id,
               style: style,
               light: light,
-              waiterLook: castLook(waiterName, 'waiter'),
-              chefLook: castLook(chefName, 'chef'),
-              waiterName: waiterName,
-              chefName: chefName,
+              waiterLook: castLook(wName, 'waiter'),
+              chefLook: castLook(cName, 'chef'),
+              waiterName: wName,
+              chefName: cName,
               tablePos: tablePos,
               decos: decos,
               pets: pets.toList(),
@@ -2494,6 +2498,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ),
         ),
       );
+  }
 
   /// Chạm vào quán trên bản đồ: hiện phòng chơi + nút mở cửa
   void showRoomSheet(String id) {
@@ -2516,6 +2521,16 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         }),
         if (isSigVenue(id) && id == sig) ...[
           const SizedBox(height: 8),
+          GButton(biz.hired ? 'Nhân viên & kinh doanh tự động' : 'Thuê nhân viên cho quán', emoji: '👥', onTap: () {
+            Navigator.pop(ctx);
+            showSigManage();
+          }),
+          if (!biz.hired)
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text('Cần thuê ít nhất 1 Đầu bếp + 1 Phục vụ thì quán mới tự mở cửa 8h–22h', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted, fontSize: 12)),
+            ),
+          const SizedBox(height: 8),
           SoftButton('Quán ${'⭐' * sigRank} • nâng hạng quán', emoji: '🏅', onTap: () {
             Navigator.pop(ctx);
             showSigManage();
@@ -2530,7 +2545,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       Sound.sfx('tap');
       return setState(() => hubTab = 'garden');
     }
-    if (id == 'sig_mine') return openSigPicker();
+    if (id == 'sig_mine') {
+      if (sig.isEmpty) return openSigPicker();
+      id = sig;
+    }
     if (id == 'sig_partner') return showPartnerSig();
     final v = venueById(id);
     if (owned.contains(id)) {
