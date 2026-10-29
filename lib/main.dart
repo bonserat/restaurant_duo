@@ -3300,7 +3300,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       if (race) oppBar(),
       ticketRail(compact: true),
       recipeBar(),
-      cookBar(),
+      SizedBox(height: 40, child: cookBar()), // giữ chỗ cố định để màn hình không nhảy
       // bếp + sảnh chung một căn phòng nhìn nghiêng
       Expanded(child: isoRoom()),
       toolBar(null),
@@ -3425,7 +3425,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     if (i < 0 || i >= stations.length || !stations[i].cooking) {
       i = stations.indexWhere((s) => s.cooking);
     }
-    if (i < 0) return const SizedBox.shrink();
+    if (i < 0) return Container(decoration: const BoxDecoration(color: Pal.surface, border: Border(bottom: BorderSide(color: Pal.line))));
     final s = stations[i];
     final rid = s.t?.recipe.id;
     const maxSalt = 5.0;
@@ -3472,13 +3472,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final busy = [for (var i = 0; i < stations.length; i++) if (stations[i].t != null) i];
     final focus = busy.contains(myStation) ? myStation : (busy.isEmpty ? -1 : busy.first);
     return Container(
-      height: busy.isEmpty ? 44 : 86,
+      height: 70, // cố định: không đẩy phòng lên xuống
       width: double.infinity,
       decoration: const BoxDecoration(color: Color(0xFFFFF7E8), border: Border(bottom: BorderSide(color: Pal.line))),
       child: busy.isEmpty
           ? Center(
               child: Text(queue.isEmpty ? '📖 Công thức món sẽ hiện ở đây khi có order' : '👆 Chạm vào bếp để nhận order, công thức sẽ hiện ở đây',
-                  style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w700, fontSize: 13)),
+                  style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w700, fontSize: 12)),
             )
           : Row(children: [
               Expanded(child: _recipeGroup(focus)),
@@ -3509,11 +3509,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         }
       }),
       child: Container(
-        width: 50,
-        margin: const EdgeInsets.only(left: 4, top: 6, bottom: 6),
+        width: 42,
+        margin: const EdgeInsets.only(left: 4, top: 5, bottom: 5),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Pal.line)),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          DishIcon(s.t!.recipe.id, size: 36, burnt: s.burnt),
+          DishIcon(s.t!.recipe.id, size: 28, burnt: s.burnt),
           Text(s.done ? (s.burnt ? '🔥' : '✅') : (s.t!.table < 0 ? '🍱' : 'B${s.t!.table + 1}'),
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Pal.muted, height: 1.1)),
         ]),
@@ -3531,8 +3531,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return GestureDetector(
         onTap: got || s.cooking || s.done ? null : () => doIngredient(id, i),
         child: Container(
-          width: 54,
-          margin: const EdgeInsets.only(left: 5),
+          width: 43,
+          margin: const EdgeInsets.only(left: 4),
           padding: const EdgeInsets.only(top: 2),
           decoration: BoxDecoration(
             color: got ? const Color(0xFFDDF6EF) : (onBoard ? const Color(0xFFFFF0C2) : Colors.white),
@@ -3541,11 +3541,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ),
           child: Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
             Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Opacity(opacity: got ? 0.45 : 1, child: Text(ing.emoji, style: const TextStyle(fontSize: 32, height: 1.1))),
+              Opacity(opacity: got ? 0.45 : 1, child: Text(ing.emoji, style: const TextStyle(fontSize: 25, height: 1.1))),
               Text(ing.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Pal.text, height: 1.1)),
+                  style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: Pal.text, height: 1.1)),
             ]),
             if (got) const Positioned(right: -6, top: -6, child: Text('✅', style: TextStyle(fontSize: 14))),
             if (onBoard) const Positioned(right: -6, top: -6, child: Text('🔪', style: TextStyle(fontSize: 14))),
@@ -3557,7 +3557,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     return GestureDetector(
       onTap: () => doStation(i),
       child: Container(
-        margin: const EdgeInsets.fromLTRB(6, 5, 2, 5),
+        margin: const EdgeInsets.fromLTRB(6, 4, 2, 4),
         padding: const EdgeInsets.fromLTRB(4, 0, 6, 0),
         decoration: BoxDecoration(
           color: const Color(0xFFE3F0FF),
@@ -3565,27 +3565,27 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           border: Border.all(color: Pal.sky, width: 2),
         ),
         child: Row(children: [
-          DishIcon(r.id, size: 56, burnt: s.burnt),
+          DishIcon(r.id, size: 45, burnt: s.burnt),
           const SizedBox(width: 4),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 92),
+            constraints: const BoxConstraints(maxWidth: 76),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(r.name, maxLines: 2, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Pal.text, height: 1.1)),
-              Text(tableLabel(s.t!.table), style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Pal.muted)),
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Pal.text, height: 1.1)),
+              Text(tableLabel(s.t!.table), style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Pal.muted)),
             ]),
           ),
           Expanded(
             child: s.done
                 ? Center(
                     child: Text(s.burnt ? '🔥 Cháy rồi! Chạm đưa ra quầy' : '✅ Chín rồi! Chạm đưa ra quầy',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: s.burnt ? Pal.danger : Pal.mint)),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: s.burnt ? Pal.danger : Pal.mint)),
                   )
                 : SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(children: [
                       for (final id in r.ings) chip(id),
-                      if (s.cooking) const Padding(padding: EdgeInsets.only(left: 8), child: Text('🔥 Đang nấu', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Pal.coral))),
+                      if (s.cooking) const Padding(padding: EdgeInsets.only(left: 8), child: Text('🔥 Đang nấu', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Pal.coral))),
                     ]),
                   ),
           ),

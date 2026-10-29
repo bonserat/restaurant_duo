@@ -1767,6 +1767,17 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     }
   }
 
+  /// Bàn ghế vẽ nhỏ lại còn một nửa (quanh điểm chạm sàn) cho phòng rộng rãi
+  static const _fk = 0.5;
+  void _scaled(Canvas c, Offset pivot, double k, void Function() f) {
+    c.save();
+    c.translate(pivot.dx, pivot.dy);
+    c.scale(k);
+    c.translate(-pivot.dx, -pivot.dy);
+    f();
+    c.restore();
+  }
+
   void _drawTable(Canvas c, int i, double t, VTheme th) {
     final tb = widget.tables[i];
     final g = _table(i);
@@ -1775,6 +1786,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     final seated = cu != null && t >= _seatAt[i];
     // ghế / ghế băng phía sau (khách ngồi ở đây)
     final sg = _seat(i);
+    _scaled(c, _pg(sg), _fk, () {
     if (kind == 'booth') {
       _box(c, sg.dx - 0.4, sg.dy - 0.18, sg.dx + 0.26, sg.dy + 0.26, _th * 0.5, _dk(th.accent, 0.05));
     } else if (kind == 'mat') {
@@ -1792,6 +1804,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     } else {
       _box(c, sg.dx - 0.15, sg.dy - 0.15, sg.dx + 0.15, sg.dy + 0.15, _th * 0.4, _lt(th.wood, 0.1));
     }
+    });
     if (cu != null && seated) {
       final frac = (cu.pat / cu.maxPat).clamp(0.0, 1.0);
       final mood = cu.st == 2 ? 0 : (frac < 0.35 ? 2 : (frac < 0.6 ? 1 : 0));
@@ -1812,6 +1825,7 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     // mặt bàn theo kiểu quán
     final glow = cu != null && cu.st == 1 && widget.selDishId != null && widget.selDishId == cu.ticketId;
     final hTop = kind == 'mat' ? _th * 0.351 : (kind == 'plastic' ? _th * 0.52 : _th * 0.663);
+    _scaled(c, _pg(g), _fk, () {
     switch (kind) {
       case 'round':
         _roundTable(c, g, hTop, cu == null && !tb.dirty);
@@ -1852,7 +1866,8 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
         _box(c, g.dx - 0.34, g.dy - 0.34, g.dx + 0.34, g.dy + 0.34, hTop, const Color(0xFF8D6E3F));
         break;
     }
-    final topC = _pg(g, hTop + 2);
+    });
+    final topC = _pg(g) + (_pg(g, hTop + 2) - _pg(g)) * _fk;
     if (glow) {
       c.drawOval(Rect.fromCenter(center: topC, width: _tw * (1.2 + 0.1 * sin(t * 8)), height: _th * 0.936), Paint()
         ..style = PaintingStyle.stroke
@@ -1864,13 +1879,17 @@ class _IsoRoomState extends State<IsoRoom> with SingleTickerProviderStateMixin {
     } else if (cu != null && seated && cu.st == 2) {
       final ks = t - _serveAt[i];
       final pop = ks < 0.45 ? 1 + 0.5 * sin(ks / 0.45 * pi) : 1.0;
-      drawDish(c, cu.recipe.id, topC - Offset(0, _tw * 0.094 * pop), _tw * 0.468 * pop, t: t);
+      drawDish(c, cu.recipe.id, topC - Offset(0, _tw * 0.07 * pop), _tw * 0.36 * pop, t: t);
     }
-    if (kind == 'round') _tubChair(c, _pg(g + const Offset(0.42, 0.42)), _tw * 0.42, true);
-    if (kind == 'cloth') _woodChair(c, _pg(g + const Offset(0.42, 0.42)), _tw * 0.42, true);
-    if (kind == 'plastic') _plasticStool(c, g + const Offset(0.42, 0.42));
-    if (kind == 'ming') _cubeStool(c, g + const Offset(0.42, 0.42));
-    if (kind == 'iron') _ironChair(c, _pg(g + const Offset(0.42, 0.42)), _tw * 0.42, true);
+    // ghế trống phía trước (quay lưng lại)
+    final fg = g + const Offset(0.3, 0.3);
+    _scaled(c, _pg(fg), _fk, () {
+      if (kind == 'round') _tubChair(c, _pg(fg), _tw * 0.42, true);
+      if (kind == 'cloth') _woodChair(c, _pg(fg), _tw * 0.42, true);
+      if (kind == 'plastic') _plasticStool(c, fg);
+      if (kind == 'ming') _cubeStool(c, fg);
+      if (kind == 'iron') _ironChair(c, _pg(fg), _tw * 0.42, true);
+    });
     final lab = _text('${i + 1}', max(8.0, _tw * 0.133), color: _dk(th.wood, 0.4), bold: true);
     lab.paint(c, _pg(g + const Offset(0.55, 0.55), 2) - Offset(lab.width / 2, lab.height / 2));
   }

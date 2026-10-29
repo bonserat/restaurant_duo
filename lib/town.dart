@@ -652,7 +652,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       return h.withHue(hue).toColor();
     }
 
-    Color g(Color x) => owned ? tint(x) : _grey(x);
+    Color g(Color x) => owned ? tint(x) : _lt(tint(x), 0.12); // quán chưa mua vẫn giữ màu riêng
     final x0 = l.x0 + 0.55, x1 = l.x1 - 0.55, y0 = l.y0 + 0.45, y1 = l.y1 - 0.75;
     final cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     final v = venueById(vid);
@@ -991,7 +991,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
 
   void _truckLot(Canvas c, _Lot l, bool owned) {
     // xe bán đồ ăn màu vàng: bảng hiệu nổi trên nóc, cửa bán mở, ghế nhựa xanh
-    Color g(Color x) => owned ? x : _grey(x);
+    Color g(Color x) => owned ? x : _lt(x, 0.12);
     final yel = g(const Color(0xFF43A047));
     final x0 = l.x0 + 0.5, x1 = l.x1 - 0.5, y0 = l.y0 + 0.9, y1 = l.y1 - 0.9;
     final xb = x1 - 1.0;
