@@ -2615,7 +2615,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   String get _cName => _helping && helper == 'chef' && !buffet ? (biz.person('chef')?.$1 ?? 'Đầu bếp thuê') : chefName;
 
   /// Khung xem trực tiếp quán riêng đang tự chạy (khách thật lúc này + hoạt động trong quán)
-  Widget liveSig(String id, int n) {
+  Widget liveSig(String id, int n, {double? height = 320}) {
     bizRun();
     final now = DateTime.now();
     final hour = now.hour + now.minute / 60;
@@ -2645,7 +2645,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: SizedBox(
-        height: 320,
+        height: height,
         child: LiveBizRoom(
           key: ValueKey('live-$id-$target-$open'),
           venueId: id,
@@ -2662,6 +2662,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// Xem toàn màn hình quán riêng đang do nhân viên thuê tự vận hành
+  void _watchStaff(String id, int n) {
+    Sound.sfx('tap');
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        backgroundColor: Pal.bg,
+        appBar: AppBar(title: Text('👀 ${venueById(id).name}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)), backgroundColor: Pal.surface, foregroundColor: Pal.text, elevation: 0),
+        body: SafeArea(child: Padding(padding: const EdgeInsets.all(8), child: liveSig(id, n, height: null))),
+      ),
+    ));
   }
 
   void _startWithHelper(String h) {
@@ -2685,29 +2697,44 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         const SizedBox(height: 8),
         crowdRow(),
         const SizedBox(height: 10),
-        if (isSigVenue(id) && id == sig && (biz.lv('chef') > 0 || biz.lv('waiter') > 0)) ...[
-          const Text('Tự vào làm cùng nhân viên thuê:', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
-          const SizedBox(height: 6),
-          if (biz.lv('waiter') > 0 && id != 'poseidon')
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: GButton('Tôi nấu • ${biz.person('waiter')?.$1 ?? 'nhân viên'} phục vụ', emoji: '🧑‍🍳', onTap: () {
-                Navigator.pop(ctx);
-                _startWithHelper('waiter');
-              }),
-            ),
-          if (biz.lv('chef') > 0)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: GButton(id == 'poseidon' ? 'Tôi nấu cùng ${biz.person('chef')?.$1 ?? 'đầu bếp'}' : 'Tôi phục vụ • ${biz.person('chef')?.$1 ?? 'đầu bếp'} nấu', emoji: '🧑‍💼', onTap: () {
-                Navigator.pop(ctx);
-                _startWithHelper('chef');
-              }),
-            ),
-          SoftButton('Tự làm hết (ngày $day)', emoji: '▶', onTap: () {
+        if (isSigVenue(id) && id == sig) ...[
+          // 1) Nguyên & Ngọc Anh cùng vào nấu/chơi
+          GButton('$owner & $partnerName cùng ${id == 'poseidon' || id == 'chinese' ? 'nấu' : 'chơi'} (ngày $day)', emoji: '👫', onTap: () {
             Navigator.pop(ctx);
             _startWithHelper('');
           }),
+          const SizedBox(height: 6),
+          SoftButton('Chơi đôi 2 máy với $partnerName', emoji: '📱', onTap: () {
+            Navigator.pop(ctx);
+            setState(() => hubTab = 'online');
+          }),
+          // 2) xem nhân viên thuê tự nấu, tự phục vụ
+          if (biz.hired) ...[
+            const SizedBox(height: 6),
+            SoftButton('Xem nhân viên & đầu bếp đang tự làm', emoji: '👀', onTap: () {
+              Navigator.pop(ctx);
+              _watchStaff(id, n);
+            }),
+          ],
+          // 3) tự vào làm một phần, nhân viên làm phần còn lại (quán gọi món)
+          if (id != 'poseidon' && id != 'chinese' && (biz.lv('chef') > 0 || biz.lv('waiter') > 0)) ...[
+            const SizedBox(height: 10),
+            const Text('Hoặc tự vào làm cùng nhân viên thuê:', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted, fontWeight: FontWeight.w700, fontSize: 12.5)),
+            const SizedBox(height: 6),
+            if (biz.lv('waiter') > 0)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: SoftButton('Tôi nấu • ${biz.person('waiter')?.$1 ?? 'nhân viên'} phục vụ', emoji: '🧑‍🍳', onTap: () {
+                  Navigator.pop(ctx);
+                  _startWithHelper('waiter');
+                }),
+              ),
+            if (biz.lv('chef') > 0)
+              SoftButton('Tôi phục vụ • ${biz.person('chef')?.$1 ?? 'đầu bếp'} nấu', emoji: '🧑‍💼', onTap: () {
+                Navigator.pop(ctx);
+                _startWithHelper('chef');
+              }),
+          ],
         ] else
           GButton('Mở cửa ngày $day', emoji: '▶', onTap: () {
             Navigator.pop(ctx);
