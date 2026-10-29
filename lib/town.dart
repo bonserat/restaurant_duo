@@ -1020,8 +1020,8 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       c.drawOval(Rect.fromCenter(center: w, width: 12, height: 10), Paint()..color = const Color(0xFF263238));
       c.drawOval(Rect.fromCenter(center: w, width: 5, height: 4), Paint()..color = yel);
     }
-    // ghế nhựa xanh + giỏ
-    const gr = Color(0xFF7BC67E);
+    // ghế đẩu nhựa đỏ + giỏ
+    const gr = Color(0xFFE8361E);
     for (final o in [Offset(x0 + 0.3, y1 + 0.55), Offset(xb - 0.5, y1 + 0.6)]) {
       _box(c, o.dx, o.dy, o.dx + 0.25, o.dy + 0.25, 7, g(gr), g(_dk(gr, 0.2)), g(_dk(gr, 0.1)));
     }
