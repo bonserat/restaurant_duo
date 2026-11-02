@@ -3376,13 +3376,19 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final Widget col = Column(children: [
       hud(race ? '🏁 THI ĐẤU' : (mode == 'local' ? '🍽️ $chefName & $waiterName' : '🤝 $chefName & $waiterName')),
       if (race) oppBar(),
-      ticketRail(compact: true),
-      recipeBar(),
-      SizedBox(height: 40, child: cookBar()), // giữ chỗ cố định để màn hình không nhảy
-      // bếp + sảnh chung một căn phòng nhìn nghiêng
-      Expanded(child: isoRoom()),
+      // bếp ở trên, sảnh (bàn phục vụ) ở dưới
+      Expanded(
+        flex: 5,
+        child: Column(children: [
+          ticketRail(compact: true),
+          recipeBar(),
+          SizedBox(height: 40, child: cookBar()), // giữ chỗ cố định để màn hình không nhảy
+          Expanded(child: kitchenScene()),
+          ingredientShelf(compact: true),
+        ]),
+      ),
       toolBar(null),
-      ingredientShelf(compact: true),
+      Expanded(flex: 6, child: diningBody(tools: false)),
     ]);
     final at = goalBurstAt;
     final burst = at != null && DateTime.now().difference(at).inMilliseconds < 3500;
@@ -3425,11 +3431,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             venueId: venueId,
             decor: decorLv,
             style: styleNow,
-            waiterLook: castLook(waiterName, 'waiter'),
-            waiterName: waiterName,
+            waiterLook: castLook(_wName, buffet ? 'chef' : 'waiter'),
+            waiterName: _wName,
             tablePos: tablePosNow,
             decos: decosNow,
             light: lightNow,
+            trays: [for (var k = 0; k < trayIds.length; k++) (trayIds[k], trayQty[k])],
             pets: petsNow,
             incidents: incidents,
             outside: outsideQ,
@@ -3452,8 +3459,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         venueId: venueId,
         style: styleNow,
         burnTime: burnTime,
-        chefLook: castLook(chefName, 'chef'),
-        chefName: chefName,
+        chefLook: castLook(_cName, 'chef'),
+        chefName: _cName,
         ingEmoji: ingEmoji,
         onStation: doStation,
         incidents: incidents,

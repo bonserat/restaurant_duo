@@ -988,6 +988,7 @@ class DiningScene extends StatefulWidget {
   final String? tool; // dụng cụ đang cầm
   final void Function(int)? onIncident;
   final void Function(String)? onPet;
+  final List<(String, int)> trays; // buffet: món trên quầy và số phần còn lại
   const DiningScene({
     super.key,
     required this.tables,
@@ -1009,6 +1010,7 @@ class DiningScene extends StatefulWidget {
     this.tool,
     this.onIncident,
     this.onPet,
+    this.trays = const [],
   });
 
   @override
@@ -1418,10 +1420,23 @@ class _DiningSceneState extends State<DiningScene> with SingleTickerProviderStat
     final ledge = Rect.fromLTRB(cx0, wallH * 0.56, cx1, wallH * 0.72);
     c.drawRRect(RRect.fromRectAndRadius(ledge, const Radius.circular(4)), Paint()..color = _lt(th.wood, 0.2));
     c.drawRect(Rect.fromLTRB(cx0, ledge.bottom, cx1, wallH), Paint()..color = _dk(th.wood, 0.15));
-    final lbl = _text('🔔 QUẦY RA MÓN', min(wallH * 0.12, 12.0), color: _a(Colors.white, 0.85), bold: true);
-    lbl.paint(c, Offset((cx0 + cx1) / 2 - lbl.width / 2, (ledge.bottom + wallH) / 2 - lbl.height / 2));
-
     final pr = min(slotW * 0.4, wallH * 0.2);
+    // buffet: các khay món tự chọn trên quầy
+    for (var j = 0; j < widget.trays.length && j < _slots.length; j++) {
+      final (id, qty) = widget.trays[j];
+      final pc = Offset(_slots[j].center.dx, ledge.top + ledge.height * 0.35);
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: pc, width: pr * 2.5, height: pr * 0.9), const Radius.circular(4)), Paint()..color = const Color(0xFFCFD8DC));
+      if (qty > 0) {
+        drawDish(c, id, pc - Offset(0, pr * 0.5), min(slotW * 0.92, pr * 2.3), t: t);
+      } else if (sin(t * 6) > 0) {
+        _emoji(c, '❗', pc - Offset(0, pr * 0.9), pr * 0.9);
+      }
+      final bar = Rect.fromCenter(center: Offset(pc.dx, ledge.bottom + 5), width: pr * 2, height: 4);
+      c.drawRRect(RRect.fromRectAndRadius(bar, const Radius.circular(2)), Paint()..color = const Color(0x55000000));
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(bar.left, bar.top, bar.width * (qty / 8).clamp(0.0, 1.0), bar.height), const Radius.circular(2)),
+          Paint()..color = qty <= 2 ? const Color(0xFFFF5252) : const Color(0xFF66BB6A));
+    }
+
     for (var j = 0; j < widget.counter.length && j < 6; j++) {
       final d = widget.counter[j];
       final pc = Offset(_slots[j].center.dx, ledge.top + ledge.height * 0.35);
