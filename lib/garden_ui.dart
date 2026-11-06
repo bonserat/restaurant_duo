@@ -82,6 +82,7 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
                   ),
                 ),
                 for (final s in gSlots) _slotView(s, st.at(s.id), W, H),
+                Positioned.fill(child: IgnorePointer(child: _ambient(W, H))),
               ]),
             );
           }),
@@ -223,11 +224,118 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
     final p = it.progress;
     if (it.isPlant) {
       if (p < 0.3) return s.baby;
+      const trees = {'mango', 'apple', 'orange', 'banana'};
       if (p < 0.65) return s.id == 'dragon' ? '🌵' : '🌿';
-      return s.id == 'dragon' ? '🌵' : '🪴';
+      return s.id == 'dragon' ? '🌵' : (trees.contains(s.id) ? '🌳' : '🪴');
     }
     return p < 0.5 ? s.baby : s.emoji;
   }
+
+  /// Cử động riêng của từng loài: (dịch ngang, dịch dọc, nghiêng, quay mặt, phồng, biểu cảm)
+  (double, double, double, bool, double, String?) _motion(GItem it, double t, int seed, double sw, double sh) {
+    if (it.dead) return (0, 0, 0, false, 0, null);
+    final id = it.s.id;
+    final night = DateTime.now().hour >= 21 || DateTime.now().hour < 6;
+    if (it.isPlant) {
+      // cây đung đưa theo gió, quả chín thì rung rinh
+      final gust = sin(t * 0.4 + seed) > 0.6 ? 2.0 : 1.0;
+      return (0, 0, sin(t * 1.3 + seed) * 0.05 * gust, false, 0, null);
+    }
+    // biểu cảm thỉnh thoảng hiện lên
+    String? emote;
+    final ek = (t * 0.2 + seed * 0.37) % 4;
+    if (ek < 0.6) {
+      const happy = ['❤️', '🎵', '✨', '😋'];
+      emote = night ? '💤' : (it.hungry ? '🍽️' : happy[((t / 20).floor() + seed) % happy.length]);
+    }
+    if (it.s.kind == 'fish') {
+      final ph = t * 0.8 + seed;
+      var dx = sin(ph) * sw * 0.22;
+      var dy = sin(t * 2 + seed) * 3;
+      var rot = cos(t * 2 + seed) * 0.08;
+      final flip = cos(ph) < 0;
+      // thỉnh thoảng nhảy khỏi mặt nước (cua, hàu thì bò/há miệng)
+      final j = (t * 0.45 + seed * 0.9) % 7;
+      if (id == 'crab' || id == 'lobster') {
+        dx = sin(t * 0.6 + seed) * sw * 0.25; // bò ngang
+        dy = sin(t * 8 + seed).abs() * -1.5;
+        rot = 0;
+        return (dx, dy, rot, false, 0, j < 0.8 ? '🫧' : null);
+      }
+      if (id == 'oyster') return (0, 0, 0, false, sin(t * 1.5 + seed) > 0.7 ? 0.08 : 0, j < 0.8 ? '🫧' : emote);
+      if (id == 'octo' || id == 'squid') {
+        // bơi giật cục kiểu phụt nước
+        final pulse = (t * 1.2 + seed) % 1.6;
+        dy = -sin(pulse / 1.6 * pi) * 8;
+        return (dx, dy, 0, flip, pulse < 0.3 ? -0.08 : 0.04, j < 0.8 ? '🫧' : null);
+      }
+      if (j < 0.7) {
+        dy -= sin(j / 0.7 * pi) * sh * 0.45;
+        rot = (j / 0.7 - 0.5) * (flip ? -1.4 : 1.4);
+        return (dx, dy, rot, flip, 0, '💦');
+      }
+      return (dx, dy, rot, flip, 0, ek < 0.4 ? '🫧' : null);
+    }
+    // vật nuôi
+    final walkPh = t * 0.5 + seed;
+    var dx = sin(walkPh) * sw * 0.12;
+    final flip = cos(walkPh) > 0;
+    if (night) return (0, 0, 0, false, sin(t * 1.5) * 0.03, '💤');
+    switch (id) {
+      case 'chicken':
+      case 'duck':
+        // lạch bạch + mổ thóc
+        var rot = sin(t * 7 + seed) * 0.1;
+        final k = (t + seed) % 2.5;
+        if (k < 0.5) rot += (flip ? -1 : 1) * 0.6 * sin(k / 0.5 * pi);
+        return (dx, -sin(t * 7 + seed).abs() * 2, rot, flip, 0, emote);
+      case 'rabbit':
+        // nhảy tưng tưng
+        final h = (t * 1.3 + seed) % 1.6;
+        final dy = h < 0.5 ? -sin(h / 0.5 * pi) * 14 : 0.0;
+        dx = sin(t * 0.45 + seed) * sw * 0.18;
+        return (dx, dy, h < 0.5 ? (flip ? -0.15 : 0.15) : 0, flip, h >= 0.5 && h < 0.6 ? -0.06 : 0, emote);
+      case 'pig':
+        // ủn ỉn, lăn lộn
+        final roll = (t * 0.3 + seed) % 6 < 0.8;
+        return (dx, roll ? -2 : 0, roll ? sin(t * 10) * 0.35 : sin(t * 3) * 0.05, flip, 0, roll ? '💕' : emote);
+      case 'goat':
+        // nhảy lên dụi sừng
+        final k = (t * 0.6 + seed) % 4;
+        return (dx, k < 0.4 ? -sin(k / 0.4 * pi) * 10 : 0, k < 0.4 ? (flip ? 0.25 : -0.25) : 0, flip, 0, emote);
+      default:
+        // bò, cừu: gặm cỏ (cúi đầu), vẫy đuôi
+        final graze = (t * 0.35 + seed) % 5 < 1.5;
+        return (graze ? dx * 0.3 : dx, 0, graze ? (flip ? -0.12 : 0.12) : sin(t * 2) * 0.03, flip, sin(t * 2.2 + seed) * 0.02, graze ? '🌿' : emote);
+    }
+  }
+
+  /// Côn trùng, chim bay quanh vườn cho sinh động
+  Widget _ambient(double W, double H) => AnimatedBuilder(
+        animation: _anim,
+        builder: (_, __) {
+          final t = (DateTime.now().millisecondsSinceEpoch % 10000000) / 1000.0;
+          final night = DateTime.now().hour >= 19 || DateTime.now().hour < 6;
+          Widget at(String e, double x, double y, double size, {double rot = 0}) => Positioned(
+                left: x * W - size / 2,
+                top: y * H - size / 2,
+                child: Transform.rotate(angle: rot, child: Text(e, style: TextStyle(fontSize: size))),
+              );
+          return Stack(children: [
+            if (!night) ...[
+              at('🦋', 0.3 + 0.18 * sin(t * 0.5), 0.2 + 0.08 * sin(t * 1.7), 16, rot: sin(t * 9) * 0.3),
+              at('🦋', 0.45 + 0.15 * cos(t * 0.4 + 1), 0.45 + 0.07 * sin(t * 2.1), 14, rot: sin(t * 8) * 0.3),
+              at('🐝', 0.2 + 0.12 * sin(t * 0.9 + 2), 0.38 + 0.05 * sin(t * 4), 13),
+              at('🐦', (t * 0.05 % 1.3) - 0.15, 0.08 + 0.03 * sin(t * 2), 15),
+              at('🪰', 0.55 + 0.1 * sin(t * 0.7), 0.74 + 0.03 * sin(t * 5), 12),
+            ] else ...[
+              for (var k = 0; k < 5; k++) at('✨', (0.15 + k * 0.18 + 0.04 * sin(t * 0.7 + k)) % 1, 0.25 + 0.2 * ((k * 37) % 5) / 5 + 0.03 * sin(t + k), 10 + 3 * sin(t * 3 + k).abs()),
+            ],
+            // bong bóng nước nổi lên ở ao
+            for (var k = 0; k < 3; k++) at('🫧', 0.3 + k * 0.2, 0.92 - ((t * 0.08 + k * 0.33) % 1) * 0.12, 9),
+          ]);
+        },
+      );
 
   Widget _slotView(GSlot slot, GItem? it, double W, double H) {
     final sw = W * (slot.area == 'field' ? 0.17 : 0.2);
@@ -255,12 +363,13 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
       body = AnimatedBuilder(
         animation: _anim,
         builder: (_, __) {
-          final t = _t;
+          final t = (DateTime.now().millisecondsSinceEpoch % 10000000) / 1000.0;
           final seed = it.uid.hashCode % 7;
-          final bob = it.isPlant || it.dead ? 0.0 : sin(t * 2.4 + seed) * 3;
-          final sway = it.isPlant && !it.dead ? sin(t * 1.3 + seed) * 0.05 : 0.0;
-          final walk = it.s.kind == 'fish' && !it.dead ? sin(t * 0.8 + seed) * sw * 0.18 : (it.s.kind == 'animal' && !it.dead ? sin(t * 0.5 + seed) * sw * 0.08 : 0.0);
-          final pulse = 1 + (it.ready ? 0.08 * sin(t * 5) : 0.0);
+          final mv = _motion(it, t, seed, sw, sh);
+          final bob = mv.$2;
+          final sway = mv.$3;
+          final walk = mv.$1;
+          final pulse = 1 + (it.ready ? 0.08 * sin(t * 5) : 0.0) + mv.$5;
           return Stack(clipBehavior: Clip.none, alignment: Alignment.center, children: [
             if (it.ready)
               Container(
@@ -277,7 +386,7 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
                   scale: pulse,
                   child: Transform(
                     alignment: Alignment.center,
-                    transform: Matrix4.diagonal3Values(it.s.kind == 'fish' && cos(t * 0.8 + seed) < 0 ? -1.0 : 1.0, 1.0, 1.0),
+                    transform: Matrix4.diagonal3Values(mv.$4 ? -1.0 : 1.0, 1.0, 1.0),
                     child: Opacity(opacity: it.dead ? 0.7 : 1, child: Text(_stageEmoji(it), style: TextStyle(fontSize: size))),
                   ),
                 ),
@@ -286,6 +395,7 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
             if (it.isPlant && !it.ready && !it.dead && p >= 0.65)
               Positioned(right: sw * 0.2, top: sh * 0.12, child: Text(it.s.emoji, style: TextStyle(fontSize: size * 0.34))),
             if (it.ready) Positioned(right: sw * 0.12, top: 0, child: Text('✨', style: TextStyle(fontSize: 14 + 3 * sin(t * 6)))),
+            if (mv.$6 != null) Positioned(right: sw * 0.05, top: -sh * 0.05 - 4 * sin(t * 3).abs(), child: Text(mv.$6!, style: const TextStyle(fontSize: 15))),
             if (badges.isNotEmpty)
               Positioned(
                 left: 0,

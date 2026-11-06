@@ -2,6 +2,7 @@
 // Mọi hình vẽ trong hệ toạ độ 100×100 (tâm ở giữa), sau đó phóng theo [size].
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'data.dart';
 
 Color _al(Color c, double o) => c.withAlpha((o.clamp(0.0, 1.0) * 255).round());
 Paint _p(Color c) => Paint()
@@ -159,6 +160,12 @@ void drawDish(Canvas c, String id, Offset p, double size, {double t = 0, bool bu
       break;
     default:
       _plate(c);
+      // món chưa có hình vẽ riêng: đặt biểu tượng món lên đĩa
+      final r = gardenRecipes.where((x) => x.id == id);
+      if (r.isNotEmpty) {
+        final tp = TextPainter(text: TextSpan(text: r.first.emoji, style: const TextStyle(fontSize: 52)), textDirection: TextDirection.ltr)..layout();
+        tp.paint(c, Offset(-tp.width / 2, -tp.height / 2 - 12));
+      }
   }
   c.restore();
   if (burnt) {
