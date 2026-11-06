@@ -79,7 +79,16 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   // ---- Nhà hàng riêng (Poseidon / Goyuhan / Quán nhậu Bình Dân) + quảng cáo + lượng khách ----
   String sig = ''; // loại nhà hàng riêng đã mở ('' = chưa)
-  int sigRank = 1; // hạng quán 1..5 sao
+  // Mỗi người mở được cả 3 nhà hàng riêng; [sig] là quán đang xem/chơi
+  Map<String, int> sigRanks = {}; // quán riêng đã mở → hạng 1..5 sao
+  Map<String, Biz> bizs = {}; // mỗi quán riêng một bộ nhân viên + két tiền
+  final Biz _noBiz = Biz();
+  int get sigRank => sig.isEmpty ? 1 : (sigRanks[sig] ?? 1);
+  set sigRank(int v) {
+    if (sig.isNotEmpty) sigRanks[sig] = v;
+  }
+
+  bool mySig(String id) => sigRanks.containsKey(id);
   Map<String, int> ads = {}; // quảng cáo: id → chạy tới (trước) ngày này
   double crowdMul = 1; // hệ số khách của ngày đang chơi
   // ---- Nhà hàng Trung: buffet tự chọn. Khách tự lấy món ở quầy, hết món thì đầu bếp nấu thêm ----
@@ -97,7 +106,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   String get partnerName => owner == kNgocAnh ? kNguyen : kNgocAnh;
   bool adOn(String id) => day < (ads[id] ?? 0);
   int get sigUpCost => 500 * sigRank;
-  Biz biz = Biz(); // nhà hàng riêng vận hành tự động
+  Biz get biz => sig.isEmpty ? _noBiz : bizs.putIfAbsent(sig, () => Biz()); // quán riêng đang chọn
+  set biz(Biz b) {
+    if (sig.isNotEmpty) bizs[sig] = b;
+  }
   int cheerDay = 0; // ngày đã cổ vũ quán người kia
 
   double get _sigAvgPrice {
@@ -109,8 +121,38 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   /// Tính tiền/hàng/sự kiện của nhà hàng tự động tới hiện tại
   void bizRun() {
-    if (sig.isEmpty || _raceBk != null || remote) return;
-    final gifts = <(int, int)>[
+    if (sigRanks.isEmpty || _raceBk != null || remote) return;
+    final keep = sig;
+    final ids = sigRanks.keys.toList()..sort();
+    for (final k in ids) {
+      sig = k;
+      _bizRunOne(withGifts: k == ids.first);
+    }
+    sig = keep;
+    // tổng doanh thu tuần của mọi quán → gửi cho người kia, thi đấu doanh thu
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final all = [for (final k in ids) bizs[k]!];
+    final head = all.first;
+    final wk = all.map((b) => b.week).reduce(max);
+    final rev = all.where((b) => b.week == wk).fold<double>(0, (a, b) => a + b.weekRev);
+    final last = all.fold<double>(0, (a, b) => a + (b.week == wk ? b.lastWeekRev : 0));
+    if (all.any((b) => b.hired) && now - _revPubAt > 30 * 60000) {
+      _revPubAt = now;
+      Garden.instance.act('rev', {'own': owner, 'wk': wk, 'v': rev.round(), 'lw': last.round()});
+    }
+    final pr = partnerRev();
+    if (wk > 0 && head.prizeWeek != wk && pr != null && last > 0) {
+      final theirLast = pr.$1 == wk ? pr.$3 : (pr.$1 == wk - 1 ? pr.$2 : 0);
+      if (last > theirLast) {
+        head.prizeWeek = wk;
+        money += 300;
+        head.log.insert(0, '🏆 Thắng cuộc thi doanh thu tuần trước! +300💰');
+      }
+    }
+  }
+
+  void _bizRunOne({required bool withGifts}) {
+    final gifts = !withGifts ? const <(int, int)>[] : <(int, int)>[
       for (final e in Garden.instance.events)
         if ((e.a == 'cheer' || e.a == 'gift') && e.d['to'] == owner) (e.at, e.a == 'gift' ? ((e.d['m'] as num?)?.toInt() ?? 0) : 0),
     ];
@@ -119,21 +161,6 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     final now = DateTime.now().millisecondsSinceEpoch;
     biz.run(now, owner: owner, rank: sigRank, avgPrice: _sigAvgPrice, crowd: crowd, gifts: gifts,
         warm: w != null && (w.rain || w.storm || w.temp < 24), hot: w != null && w.temp >= 31);
-    // gửi doanh thu tuần cho người kia xem (tối đa 30 phút/lần)
-    if (biz.hired && now - _revPubAt > 30 * 60000) {
-      _revPubAt = now;
-      Garden.instance.act('rev', {'own': owner, 'wk': biz.week, 'v': biz.weekRev.round(), 'lw': biz.lastWeekRev.round()});
-    }
-    // thưởng thắng cuộc thi doanh thu tuần trước
-    final pr = partnerRev();
-    if (biz.week > 0 && biz.prizeWeek != biz.week && pr != null && biz.lastWeekRev > 0) {
-      final theirLast = pr.$1 == biz.week ? pr.$3 : (pr.$1 == biz.week - 1 ? pr.$2 : 0);
-      if (biz.lastWeekRev > theirLast) {
-        biz.prizeWeek = biz.week;
-        money += 300;
-        biz.log.insert(0, '🏆 Thắng cuộc thi doanh thu tuần trước! +300💰');
-      }
-    }
   }
 
   int _revPubAt = 0;
@@ -403,9 +430,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     light = 'day';
     npcVisits = {};
     sig = '';
-    sigRank = 1;
+    sigRanks = {};
+    bizs = {};
     ads = {};
-    biz = Biz();
     cheerDay = 0;
   }
 
@@ -418,6 +445,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       await loadData();
       if (q['own'] != '0') owned.addAll(['cafe', 'bakery', 'chinese', 'mexican', 'truck', 'goyuhan']);
       sig = q['own'] == '0' ? '' : 'goyuhan';
+      if (sig.isNotEmpty) sigRanks[sig] = 1;
       Sound.setEnabled(false);
       if (mounted) setState(() => screen = 'menu');
       if (q['demo'] == 'room') {
@@ -489,9 +517,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       npcVisits = Map<String, int>.from(m['npc'] ?? {});
       diff = m['diff'] ?? 'auto';
       sig = m['sig'] ?? '';
-      sigRank = m['sigRank'] ?? 1;
+      sigRanks = {for (final e in ((m['sigRanks'] as Map?) ?? const {}).entries) e.key.toString(): (e.value as num).toInt()};
+      bizs = {for (final e in ((m['bizs'] as Map?) ?? const {}).entries) e.key.toString(): Biz.fromJson(e.value)};
+      if (sig.isNotEmpty && !sigRanks.containsKey(sig)) {
+        // dữ liệu cũ: chỉ có 1 quán riêng
+        sigRanks[sig] = (m['sigRank'] as num?)?.toInt() ?? 1;
+        bizs[sig] = Biz.fromJson(m['biz']);
+      }
       ads = Map<String, int>.from(m['ads'] ?? {});
-      biz = Biz.fromJson(m['biz']);
       cheerDay = m['cheer'] ?? 0;
     }
   }
@@ -515,8 +548,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'diff': diff,
         'sig': sig,
         'sigRank': sigRank,
+        'sigRanks': sigRanks,
+        'bizs': {for (final e in bizs.entries) if (e.key.isNotEmpty && sigRanks.containsKey(e.key)) e.key: e.value.toJson()},
         'ads': ads,
-        'biz': biz.toJson(),
         'cheer': cheerDay,
       };
 
@@ -2034,7 +2068,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             ]),
             const SizedBox(height: 8),
             crowdRow(),
-            if (isSigVenue(venueId) && venueId == sig) ...[
+            if (mySig(venueId)) ...[
               const SizedBox(height: 6),
               SoftButton('Quán ${'⭐' * sigRank} • nâng hạng quán', emoji: '🏅', onTap: showSigManage),
             ],
@@ -2074,16 +2108,34 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   //  NHÀ HÀNG RIÊNG + LƯỢNG KHÁCH + QUẢNG CÁO
   // =====================================================================
   List<SigSpot> sigSpots() {
-    final p = Garden.instance.sigOf(partnerName);
+    final p = Garden.instance.sigsOf(partnerName);
+    final me = owner.isEmpty ? 'Bạn' : owner;
     return [
-      SigSpot(hitId: sig.isEmpty ? 'sig_mine' : sig, venueId: sig.isEmpty ? null : sig, owner: owner.isEmpty ? 'Bạn' : owner, rank: sigRank, mine: true),
-      SigSpot(hitId: 'sig_partner', venueId: p?.$1, owner: partnerName, rank: p?.$2 ?? 1, mine: false),
+      for (var k = 0; k < sigVenueIds.length; k++) ...[
+        SigSpot(
+            hitId: mySig(sigVenueIds[k]) ? sigVenueIds[k] : 'buy:${sigVenueIds[k]}',
+            venueId: mySig(sigVenueIds[k]) ? sigVenueIds[k] : null,
+            owner: me,
+            rank: sigRanks[sigVenueIds[k]] ?? 1,
+            mine: true,
+            slot: k,
+            plan: sigVenueIds[k]),
+        SigSpot(
+            hitId: 'partner:${sigVenueIds[k]}',
+            venueId: p.containsKey(sigVenueIds[k]) ? sigVenueIds[k] : null,
+            owner: partnerName,
+            rank: p[sigVenueIds[k]] ?? 1,
+            mine: false,
+            slot: k,
+            plan: sigVenueIds[k]),
+      ],
     ];
   }
 
   void _publishSig() {
-    if (sig.isEmpty || owner.isEmpty) return;
-    Garden.instance.act('sig', {'own': owner, 'v': sig, 'r': sigRank});
+    if (sigRanks.isEmpty || owner.isEmpty) return;
+    final v = sig.isNotEmpty && mySig(sig) ? sig : sigRanks.keys.first;
+    Garden.instance.act('sig', {'own': owner, 'v': v, 'r': sigRanks[v] ?? 1, 'all': sigRanks});
   }
 
   /// Dòng "Khách hôm nay" trên thẻ quán
@@ -2178,7 +2230,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     Sound.sfx('tap');
     showGameSheet(context, title: 'Mở nhà hàng riêng', emoji: '🏗️', builder: (ctx, setS) {
       return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
-        const Text('Mỗi người chỉ chọn được 1 kiểu. Mở xong thì nâng hạng dần để quán đông khách, bán đắt hơn.',
+        const Text('Mở được cả 3 nhà hàng riêng, mỗi quán có hạng, nhân viên và két tiền riêng. Nâng hạng dần để quán đông khách, bán đắt hơn.',
             style: TextStyle(color: Pal.muted, fontSize: 12.5)),
         const SizedBox(height: 10),
         for (final id in sigVenueIds) _sigCard(ctx, id),
@@ -2212,6 +2264,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               ]),
           ]),
           const SizedBox(height: 10),
+          if (mySig(id))
+            GButton('Đã mở • vào quán', emoji: '🏪', onTap: () {
+              Navigator.pop(ctx);
+              onVenueTap(id);
+            })
+          else
           GButton(
             afford ? 'Mở quán • 💰 ${v.cost}' : 'Cần thêm 💰 ${v.cost - money}',
             emoji: '🔑',
@@ -2221,7 +2279,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     Sound.sfx('goal');
                     setState(() {
                       sig = id;
-                      sigRank = 1;
+                      sigRanks[id] = 1;
+                      bizs[id] = Biz();
                       owned.add(id);
                       recipes.addAll(v.recipes.where((r) => r.unlock == 0).map((r) => r.id));
                       venueId = id;
@@ -2284,7 +2343,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             Text(b.hired ? (open ? '🟢 Đang mở cửa' : '🌙 Đã đóng cửa (mở 8h–22h)') : '⚪ Chưa có nhân viên',
                 style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.text)),
             const Spacer(),
-            Text('💰 ${b.cash.round()} / ${b.cashCap.round()}', style: TextStyle(fontWeight: FontWeight.w900, color: b.cash < 0 ? Pal.danger : Pal.gold)),
+            Text('💰 ${b.cash.round()}', style: TextStyle(fontWeight: FontWeight.w900, color: b.cash < 0 ? Pal.danger : Pal.gold)),
           ]),
           const SizedBox(height: 8),
           _meter('😊 Tinh thần', b.morale / 100, b.morale < 30 ? Pal.danger : Pal.mint, '${b.morale.round()}%'),
@@ -2521,9 +2580,19 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   /// Xem nhà hàng riêng của người kia
-  void showPartnerSig() {
+  /// Chạm lô đất trống của mình: mở quán riêng đúng loại của lô đó
+  void _buySig(String id) {
     Sound.sfx('tap');
-    final p = Garden.instance.sigOf(partnerName);
+    showGameSheet(context, title: 'Mở ${venueById(id).name}', emoji: '🏗️', builder: (ctx, setS) {
+      return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [_sigCard(ctx, id)]);
+    });
+  }
+
+  void showPartnerSig([String? vid]) {
+    Sound.sfx('tap');
+    final all = Garden.instance.sigsOf(partnerName);
+    final pick = vid ?? (all.isEmpty ? null : all.keys.first);
+    final (String, int)? p = pick != null && all.containsKey(pick) ? (pick, all[pick]!) : null;
     showGameSheet(context, title: 'Quán của $partnerName', emoji: p == null ? '🚧' : venueById(p.$1).emoji, builder: (ctx, setS) {
       if (p == null) {
         return Padding(
@@ -2573,9 +2642,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   /// Xem trước phòng chơi bên trong quán (không có khách)
   Widget roomPreview(String id, int nTables) {
-    final staffed = isSigVenue(id) && id == sig && biz.hired;
-    final wName = staffed ? (biz.person('waiter')?.$1 ?? 'Phục vụ') : waiterName;
-    final cName = staffed ? (biz.person('chef')?.$1 ?? 'Đầu bếp') : chefName;
+    final staffed = mySig(id) && (bizs[id]?.hired ?? false);
+    final wName = staffed ? (bizs[id]!.person('waiter')?.$1 ?? 'Phục vụ') : waiterName;
+    final cName = staffed ? (bizs[id]!.person('chef')?.$1 ?? 'Đầu bếp') : chefName;
     return ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: SizedBox(
@@ -2686,18 +2755,19 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   /// Chạm vào quán trên bản đồ: hiện phòng chơi + nút mở cửa
   void showRoomSheet(String id) {
+    if (mySig(id)) sig = id;
     final v = venueById(id);
     showGameSheet(context, title: v.name, emoji: v.emoji, builder: (ctx, setS) {
       final n = min(4 + lvl('tables'), v.maxTables);
       final nRec = v.recipes.where((r) => recipes.contains(r.id)).length;
       return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
-        if (isSigVenue(id) && id == sig) liveSig(id, n) else roomPreview(id, n),
+        if (mySig(id)) liveSig(id, n) else roomPreview(id, n),
         const SizedBox(height: 10),
         Text('🪑 $n bàn  •  📖 $nRec món  •  🎯 mục tiêu $goal💰', textAlign: TextAlign.center, style: const TextStyle(color: Pal.muted, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         crowdRow(),
         const SizedBox(height: 10),
-        if (isSigVenue(id) && id == sig) ...[
+        if (mySig(id)) ...[
           // 1) Nguyên & Ngọc Anh cùng vào nấu/chơi
           GButton('$owner & $partnerName cùng ${id == 'poseidon' || id == 'chinese' ? 'nấu' : 'chơi'} (ngày $day)', emoji: '👫', onTap: () {
             Navigator.pop(ctx);
@@ -2740,7 +2810,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             Navigator.pop(ctx);
             _startWithHelper('');
           }),
-        if (isSigVenue(id) && id == sig) ...[
+        if (mySig(id)) ...[
           const SizedBox(height: 8),
           GButton(biz.hired ? 'Nhân viên & kinh doanh tự động' : 'Thuê nhân viên cho quán', emoji: '👥', onTap: () {
             Navigator.pop(ctx);
@@ -2766,11 +2836,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       Sound.sfx('tap');
       return setState(() => hubTab = 'garden');
     }
-    if (id == 'sig_mine') {
-      if (sig.isEmpty) return openSigPicker();
-      id = sig;
-    }
+    if (id == 'sig_mine') return openSigPicker();
+    if (id.startsWith('buy:')) return _buySig(id.substring(4));
     if (id == 'sig_partner') return showPartnerSig();
+    if (id.startsWith('partner:')) return showPartnerSig(id.substring(8));
+    if (mySig(id)) sig = id;
     final v = venueById(id);
     if (owned.contains(id)) {
       Sound.sfx('door', vol: 0.6);

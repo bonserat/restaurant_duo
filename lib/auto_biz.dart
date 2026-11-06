@@ -7,7 +7,7 @@ import 'garden_engine.dart' show hash01;
 const staffTypes = [
   ('chef', '🧑‍🍳', 'Đầu bếp', 300, 6, 5, 'Mỗi cấp nấu thêm 5 khách/giờ'),
   ('waiter', '🧑‍💼', 'Phục vụ', 250, 5, 5, 'Mỗi cấp phục vụ thêm 6 khách/giờ'),
-  ('manager', '👔', 'Quản lý', 600, 10, 3, 'Két chứa nhiều hơn, nhân viên đỡ chán, cấp 2 tự nhập hàng'),
+  ('manager', '👔', 'Quản lý', 600, 10, 3, 'Nhân viên đỡ chán, cấp 2 tự nhập hàng'),
   ('cleaner', '🧹', 'Tạp vụ', 150, 4, 3, 'Quán bẩn chậm hơn'),
 ];
 
@@ -284,9 +284,7 @@ class Biz {
           regulars = max(0.0, regulars - dt * 0.5);
         }
         final wages = (6 * lv('chef') + 5 * lv('waiter') + 10 * lv('manager') + 4 * lv('cleaner')) * wageMul * dt;
-        final before = cash;
-        cash = min(cashCap, cash + income) - wages;
-        if (before < cashCap && cash + wages >= cashCap) _say(at, '💰 Két đầy! Vào thu tiền kẻo phí khách');
+        cash = cash + income - wages; // không giới hạn két: bán được bao nhiêu thu bấy nhiêu
         clean = max(0.0, clean - served * 0.5 * (1 - 0.25 * lv('cleaner')) * _trait(2));
         final mBefore = morale;
         morale = max(0.0, morale - dt * (lv('manager') > 0 ? 0.6 : 1.2) * _trait(3));

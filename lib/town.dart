@@ -66,8 +66,13 @@ const double _r1 = 6.5, _r2 = 11, _r3 = 17, _rw = 0.7;
 const double _rv0 = 10.1, _rv1 = 11.5;
 
 const _lots = [
-  _Lot('sig_mine', 2.4, 1.0, 8.4, 5.2),
-  _Lot('sig_partner', 13.4, 1.0, 19.4, 5.2),
+  // mỗi người 3 lô cho 3 nhà hàng riêng (Poseidon, Goyuhan, Bình Dân)
+  _Lot('sig_mine_0', 0.8, 1.0, 3.8, 5.2),
+  _Lot('sig_mine_1', 3.95, 1.0, 6.95, 5.2),
+  _Lot('sig_mine_2', 7.1, 1.0, 10.0, 5.2),
+  _Lot('sig_partner_0', 12.2, 1.0, 15.2, 5.2),
+  _Lot('sig_partner_1', 15.35, 1.0, 18.35, 5.2),
+  _Lot('sig_partner_2', 18.5, 1.0, 21.3, 5.2),
   _Lot('cafe', 1.4, 12.7, 5.4, 16.0),
   _Lot('bakery', 6.2, 12.7, 10.0, 16.0),
   _Lot('chinese', 12.4, 12.7, 16.2, 16.0),
@@ -83,7 +88,9 @@ class SigSpot {
   final String owner;
   final int rank; // hạng quán 1..5
   final bool mine;
-  const SigSpot({required this.hitId, required this.venueId, required this.owner, required this.rank, required this.mine});
+  final int slot; // lô thứ mấy (0..2)
+  final String plan; // loại quán dành cho lô này
+  const SigSpot({required this.hitId, required this.venueId, required this.owner, required this.rank, required this.mine, this.slot = 0, this.plan = ''});
 }
 
 class TownMap extends StatefulWidget {
@@ -124,9 +131,11 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
 
   // ------------------------------------------------------------------ lô đất ↔ quán
   SigSpot? _sigFor(String key) {
+    if (!key.startsWith('sig_')) return null;
+    final mine = key.startsWith('sig_mine');
+    final slot = int.tryParse(key.substring(key.length - 1)) ?? 0;
     for (final s in widget.sigs) {
-      if (key == 'sig_mine' && s.mine) return s;
-      if (key == 'sig_partner' && !s.mine) return s;
+      if (s.mine == mine && s.slot == slot) return s;
     }
     return null;
   }
@@ -137,7 +146,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     final who = s?.owner ?? '';
     if (who == kNguyen) return const Color(0xFF8E44D9);
     if (who == kNgocAnh) return const Color(0xFF2F80ED);
-    return key == 'sig_mine' ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF);
+    return key.startsWith('sig_mine') ? const Color(0xFFFF6A47) : const Color(0xFF4C8DFF);
   }
 
   /// Quán đang đặt trên lô (null = đất trống / vườn)
@@ -480,7 +489,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     final vid = _venueOf(l);
     final id = _hitIdOf(l);
     _hit[id] = _lotRect(l);
-    if (vid == null) return _emptyLot(c, l, l.key == 'sig_mine', _ownerCol(l.key));
+    if (vid == null) return _emptyLot(c, l, l.key.startsWith('sig_mine'), _ownerCol(l.key));
     final owned = l.key.startsWith('sig_') || widget.owned.contains(vid);
     if (vid == 'truck') return _truckLot(c, l, owned);
     _building(c, l, vid, owned, night);
@@ -1072,10 +1081,12 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       final top = _roofTop[l.key] ?? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 70);
       final sig = l.key.startsWith('sig_') ? _sigFor(l.key) : null;
       if (vid == null) {
-        final mine = l.key == 'sig_mine';
+        final mine = l.key.startsWith('sig_mine');
         final who = sig?.owner ?? (mine ? 'Bạn' : '');
-        _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 22), '🏗️ Đất của $who', _ownerCol(l.key), Colors.white);
-        _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 44), mine ? 'Chạm để mở nhà hàng riêng' : 'Chưa mở quán', Colors.white, const Color(0xFF221B3F));
+        final plan = sig?.plan ?? '';
+        final pn = plan.isEmpty ? 'Nhà hàng riêng' : venueById(plan).name.split(' – ').first;
+        _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 22), '🏗️ $pn', _ownerCol(l.key), Colors.white, small: true);
+        _label(c, _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2) + const Offset(0, 40), mine ? 'Chạm để mở' : 'Đất của $who', Colors.white, const Color(0xFF221B3F), small: true);
         continue;
       }
       final owned = sig != null || widget.owned.contains(vid);

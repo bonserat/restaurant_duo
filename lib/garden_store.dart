@@ -45,6 +45,18 @@ class Garden extends ChangeNotifier {
     return (last.d['v'].toString(), (last.d['r'] as num?)?.toInt() ?? 1);
   }
 
+  /// Tất cả nhà hàng riêng của một người: {quán: hạng}
+  Map<String, int> sigsOf(String own) {
+    GEvent? last;
+    for (final e in events) {
+      if (e.a == 'sig' && e.d['own'] == own && (last == null || e.at >= last.at)) last = e;
+    }
+    if (last == null) return {};
+    final all = last.d['all'];
+    if (all is Map) return {for (final x in all.entries) x.key.toString(): (x.value as num?)?.toInt() ?? 1};
+    return {last.d['v'].toString(): (last.d['r'] as num?)?.toInt() ?? 1};
+  }
+
   Future<void> start(String owner) async {
     who = owner;
     if (_started) return;
