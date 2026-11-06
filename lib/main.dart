@@ -351,8 +351,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       _gardenCare = care;
       changed = true;
     }
-    final ps = Garden.instance.sigOf(partnerName);
-    final pk = ps == null ? '' : '${ps.$1}${ps.$2}';
+    final pk = Garden.instance.sigsOf(partnerName).toString();
     if (pk != _partnerSigKey) {
       _partnerSigKey = pk; // quán của người kia vừa mở / lên hạng → vẽ lại bản đồ
       changed = true;
