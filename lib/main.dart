@@ -22,6 +22,7 @@ import 'warmup.dart';
 import 'crowd.dart';
 import 'auto_biz.dart';
 import 'live_room.dart';
+import 'fashion.dart';
 
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
@@ -80,6 +81,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   // ---- Nhà hàng riêng (Poseidon / Goyuhan / Quán nhậu Bình Dân) + quảng cáo + lượng khách ----
   String sig = ''; // loại nhà hàng riêng đã mở ('' = chưa)
   // Mỗi người mở được cả 3 nhà hàng riêng; [sig] là quán đang xem/chơi
+  bool fashion = false; // đã mở cửa hàng thời trang nam nữ
   Map<String, int> sigRanks = {}; // quán riêng đã mở → hạng 1..5 sao
   Map<String, Biz> bizs = {}; // mỗi quán riêng một bộ nhân viên + két tiền
   final Biz _noBiz = Biz();
@@ -429,6 +431,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     light = 'day';
     npcVisits = {};
     sig = '';
+    fashion = false;
     sigRanks = {};
     bizs = {};
     ads = {};
@@ -524,6 +527,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         bizs[sig] = Biz.fromJson(m['biz']);
       }
       ads = Map<String, int>.from(m['ads'] ?? {});
+      fashion = m['fashion'] == true;
       cheerDay = m['cheer'] ?? 0;
     }
   }
@@ -548,6 +552,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'sig': sig,
         'sigRank': sigRank,
         'sigRanks': sigRanks,
+        'fashion': fashion,
         'bizs': {for (final e in bizs.entries) if (e.key.isNotEmpty && sigRanks.containsKey(e.key)) e.key: e.value.toJson()},
         'ads': ads,
         'cheer': cheerDay,
@@ -2026,7 +2031,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         bottom: mapPanel ? 200 : 0,
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
-          child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots()),
+          child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots(), fashion: fashion),
         ),
       ),
       Positioned(
@@ -2579,6 +2584,44 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   /// Xem nhà hàng riêng của người kia
+  /// Cửa hàng thời trang: mua lần đầu, sau đó vào bán (thay đồ cho khách)
+  void _openFashion() {
+    Sound.sfx('tap');
+    if (!fashion) {
+      showGameSheet(context, title: 'Cửa hàng thời trang nam nữ', emoji: '👗', builder: (ctx, setS) {
+        final afford = money >= kFashionCost;
+        return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
+          const Text('Khách vào nói muốn thử bộ nào (áo, quần/váy, phụ kiện). Bạn chọn đồ thay cho khách trong phòng thử rồi bấm 🪞 Soi gương. Khách ưng ý sẽ trả tiền và đi ra, thay đúng ngay lần đầu được thêm tiền boa.',
+              style: TextStyle(color: Pal.text, fontSize: 13)),
+          const SizedBox(height: 12),
+          GButton(afford ? 'Mở cửa hàng • 💰 $kFashionCost' : 'Cần thêm 💰 ${kFashionCost - money}', emoji: '🔑', onTap: afford
+              ? () {
+                  if (!pay(kFashionCost)) return;
+                  Navigator.pop(ctx);
+                  setState(() => fashion = true);
+                  save();
+                  Sound.sfx('goal');
+                  snack('🎉 Khai trương cửa hàng thời trang!');
+                }
+              : null),
+        ]);
+      });
+      return;
+    }
+    final me = owner.isEmpty ? kNgocAnh : owner;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => FashionShop(
+        staffName: me,
+        staffLook: castLook(me, 'waiter'),
+        level: day,
+        onDone: (earned, served, lost) {
+          setState(() => money += earned);
+          save();
+        },
+      ),
+    ));
+  }
+
   /// Chạm lô đất trống của mình: mở quán riêng đúng loại của lô đó
   void _buySig(String id) {
     Sound.sfx('tap');
@@ -2835,6 +2878,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       Sound.sfx('tap');
       return setState(() => hubTab = 'garden');
     }
+    if (id == 'fashion') return _openFashion();
     if (id == 'sig_mine') return openSigPicker();
     if (id.startsWith('buy:')) return _buySig(id.substring(4));
     if (id == 'sig_partner') return showPartnerSig();
