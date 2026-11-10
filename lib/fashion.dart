@@ -2,6 +2,7 @@
 // quần/váy, phụ kiện để thay cho khách trong phòng thử. Khách ưng thì trả tiền và đi ra.
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'scene.dart';
 import 'sound.dart';
@@ -41,15 +42,196 @@ const garments = [
 
 Garment garmentById(String id) => garments.firstWhere((g) => g.id == id);
 
+// ------------------------------------------------------------------ làm tóc + mặt pixel
+const hairStyles = [('spiky', 'Dựng gai', '⚡'), ('mohawk', 'Mohican', '🦔'), ('sweep', 'Mái lệch', '💁'), ('long', 'Tóc dài', '👩'), ('bob', 'Bob ngắn', '💇')];
+const hairColors = [
+  ('den', 'Đen', Color(0xFF1B1B1B)),
+  ('nau', 'Nâu', Color(0xFF6D4C41)),
+  ('vang', 'Vàng', Color(0xFFFBC02D)),
+  ('do', 'Đỏ cam', Color(0xFFE64A19)),
+  ('tim', 'Tím', Color(0xFF8E44D9)),
+  ('xanh', 'Xanh dương', Color(0xFF3D5AFE)),
+  ('hong', 'Hồng', Color(0xFFEC407A)),
+  ('bac', 'Bạc', Color(0xFFB0BEC5)),
+];
+String hairStyleName(String id) => hairStyles.firstWhere((h) => h.$1 == id).$2;
+(String, String, Color) hairColorOf(String id) => hairColors.firstWhere((h) => h.$1 == id);
+const kHairPrice = 150;
+
+/// Lưới 16×16 mặt pixel: k viền, s da, h tóc, H tóc sáng, e lòng trắng, i con ngươi, m miệng, b má hồng, n mũi
+List<String> pixelFace(String style, int seed) {
+  final g = List.generate(16, (_) => List.filled(16, '.'));
+  void set(int r, int c, String v) {
+    if (r >= 0 && r < 16 && c >= 0 && c < 16) g[r][c] = v;
+  }
+
+  // mặt + cổ
+  const rows = {4: [5, 10], 5: [4, 11], 6: [4, 11], 7: [4, 11], 8: [4, 11], 9: [4, 11], 10: [4, 11], 11: [5, 10], 12: [6, 9], 13: [6, 9], 14: [6, 9], 15: [6, 9]};
+  rows.forEach((r, cs) {
+    for (var c = cs[0]; c <= cs[1]; c++) {
+      set(r, c, 's');
+    }
+  });
+  final r = Random(seed);
+  switch (style) {
+    case 'spiky':
+      for (var row = 3; row <= 5; row++) {
+        for (var c = 4; c <= 11; c++) {
+          set(row, c, 'h');
+        }
+      }
+      for (final c in [4, 6, 8, 10, 11]) {
+        final hgt = 1 + r.nextInt(3);
+        for (var k = 0; k < hgt; k++) {
+          set(2 - k, c + (k == 2 ? (c.isEven ? -1 : 1) : 0), 'h');
+        }
+      }
+      for (var row = 5; row <= 8; row++) {
+        set(row, 3, 'h');
+        set(row, 12, 'h');
+      }
+      break;
+    case 'mohawk':
+      for (var row = 0; row <= 5; row++) {
+        for (var c = 6; c <= 9; c++) {
+          if (row == 0 && (c == 6 || c == 9)) continue;
+          set(row, c, 'h');
+        }
+      }
+      set(1, 5, 'h');
+      set(0, 7, 'H');
+      break;
+    case 'sweep':
+      for (var row = 2; row <= 5; row++) {
+        for (var c = 4; c <= 12; c++) {
+          set(row, c, 'h');
+        }
+      }
+      for (final (row, a, b) in [(6, 4, 8), (7, 4, 6), (8, 4, 5), (1, 6, 11)]) {
+        for (var c = a; c <= b; c++) {
+          set(row, c, 'h');
+        }
+      }
+      for (var row = 5; row <= 9; row++) {
+        set(row, 12, 'h');
+      }
+      break;
+    case 'long':
+      for (var row = 2; row <= 5; row++) {
+        for (var c = 4; c <= 11; c++) {
+          set(row, c, 'h');
+        }
+      }
+      for (var row = 3; row <= 15; row++) {
+        set(row, 3, 'h');
+        set(row, 12, 'h');
+        if (row >= 5) {
+          set(row, 2, 'h');
+          set(row, 13, 'h');
+        }
+      }
+      for (var c = 5; c <= 10; c++) {
+        set(6, c, c == 7 || c == 8 ? 's' : 'h');
+      }
+      break;
+    default: // bob
+      for (var row = 2; row <= 6; row++) {
+        for (var c = 3; c <= 12; c++) {
+          set(row, c, 'h');
+        }
+      }
+      for (var row = 7; row <= 11; row++) {
+        set(row, 3, 'h');
+        set(row, 12, 'h');
+      }
+      break;
+  }
+  // mắt, lông mày, mũi, miệng, má
+  set(7, 5, 'k');
+  set(7, 6, 'k');
+  set(7, 9, 'k');
+  set(7, 10, 'k');
+  if (g[8][5] == 's') set(8, 5, 'e');
+  if (g[8][6] == 's') set(8, 6, 'i');
+  set(8, 9, 'i');
+  set(8, 10, 'e');
+  set(10, 8, 'n');
+  set(11, 7, 'm');
+  set(11, 8, 'm');
+  if (seed % 3 == 0) {
+    set(10, 5, 'b');
+    set(10, 10, 'b');
+  }
+  // tóc có vệt sáng
+  for (var row = 0; row < 16; row++) {
+    for (var c = 0; c < 16; c++) {
+      if (g[row][c] == 'h' && (row * 3 + c + seed) % 7 == 0) g[row][c] = 'H';
+    }
+  }
+  // viền đen bao quanh
+  final out = [for (final row in g) [...row]];
+  for (var row = 0; row < 16; row++) {
+    for (var c = 0; c < 16; c++) {
+      if (g[row][c] != '.') continue;
+      bool f(int a, int b) => a >= 0 && a < 16 && b >= 0 && b < 16 && g[a][b] != '.';
+      if (f(row - 1, c) || f(row + 1, c) || f(row, c - 1) || f(row, c + 1)) out[row][c] = 'k';
+    }
+  }
+  return [for (final row in out) row.join()];
+}
+
+final Map<String, ui.Picture> _faceCache = {};
+
+/// Vẽ mặt pixel (kiểu ảnh chân dung 8-bit) với tâm [center], cạnh [size]
+void drawPixelFace(Canvas c, Offset center, double size, {required String style, required Color hair, required Color skin, required int seed}) {
+  const irises = [Color(0xFF2E7D32), Color(0xFF6D4C41), Color(0xFF1565C0), Color(0xFF8E44D9)];
+  const mouths = [Color(0xFFD84315), Color(0xFFE91E63), Color(0xFF6D2E2E)];
+  final key = '$style|${hair.hashCode}|${skin.hashCode}|$seed';
+  final pic = _faceCache.putIfAbsent(key, () {
+    final rows = pixelFace(style, seed);
+    final pal = {
+      'k': const Color(0xFF111111),
+      's': skin,
+      'h': hair,
+      'H': Color.lerp(hair, Colors.white, 0.35)!,
+      'e': Colors.white,
+      'i': irises[seed % irises.length],
+      'm': mouths[seed % mouths.length],
+      'b': const Color(0xFFF4A3A3),
+      'n': Color.lerp(skin, const Color(0xFF8D5524), 0.35)!,
+    };
+    final rec = ui.PictureRecorder();
+    final k = Canvas(rec);
+    final p = Paint()..isAntiAlias = false;
+    for (var y = 0; y < 16; y++) {
+      for (var x = 0; x < 16; x++) {
+        final col = pal[rows[y][x]];
+        if (col == null) continue;
+        p.color = col;
+        k.drawRect(Rect.fromLTWH(x.toDouble(), y.toDouble(), 1.03, 1.03), p);
+      }
+    }
+    return rec.endRecording();
+  });
+  c.save();
+  c.translate(center.dx - size / 2, center.dy - size / 2);
+  c.scale(size / 16);
+  c.drawPicture(pic);
+  c.restore();
+}
+
 class _Shopper {
   final Look look;
   final String top, bottom;
   final String? acc;
   final double maxPat;
   double pat;
-  _Shopper(this.look, this.top, this.bottom, this.acc, this.maxPat) : pat = maxPat;
+  final int seed;
+  final String hs, hc; // kiểu tóc + màu tóc lúc vào
+  final String? wantHs, wantHc; // muốn làm tóc (null = không)
+  _Shopper(this.look, this.top, this.bottom, this.acc, this.maxPat, this.seed, this.hs, this.hc, this.wantHs, this.wantHc) : pat = maxPat;
   bool get female => look.female;
-  int get price => garmentById(top).price + garmentById(bottom).price + (acc == null ? 0 : garmentById(acc!).price);
+  int get price => garmentById(top).price + garmentById(bottom).price + (acc == null ? 0 : garmentById(acc!).price) + (wantHs == null ? 0 : kHairPrice);
 }
 
 class FashionShop extends StatefulWidget {
@@ -70,6 +252,7 @@ class _FashionShopState extends State<FashionShop> {
   final List<_Shopper> queue = [];
   _Shopper? cur;
   String? top, bottom, acc; // đồ đang mặc thử
+  String hs = 'bob', hc = 'den'; // tóc đang làm
   String tab = 'top';
   String? say; // khách nói
   double sayT = 0;
@@ -97,8 +280,19 @@ class _FashionShopState extends State<FashionShop> {
     List<Garment> of(String slot) => garments.where((g) => g.slot == slot && (g.sex == 0 || g.sex == sex)).toList();
     final tp = of('top'), bt = of('bottom'), ac = of('acc');
     final wantAcc = rnd.nextDouble() < min(0.75, 0.25 + widget.level * 0.05);
+    final seed = rnd.nextInt(1 << 20);
+    final styles = look.female ? ['long', 'bob', 'sweep', 'spiky', 'mohawk'] : ['spiky', 'mohawk', 'sweep', 'bob', 'long'];
+    final hs0 = styles[rnd.nextInt(look.female ? 3 : 4)];
+    final hc0 = hairColors[rnd.nextInt(hairColors.length)].$1;
+    String? wHs, wHc;
+    if (rnd.nextDouble() < 0.5) {
+      do {
+        wHs = styles[rnd.nextInt(styles.length)];
+        wHc = hairColors[rnd.nextInt(hairColors.length)].$1;
+      } while (wHs == hs0 && wHc == hc0);
+    }
     return _Shopper(look, tp[rnd.nextInt(tp.length)].id, bt[rnd.nextInt(bt.length)].id, wantAcc ? ac[rnd.nextInt(ac.length)].id : null,
-        max(16.0, 34 - widget.level * 1.2));
+        max(18.0, 36 - widget.level * 1.2) + (wHs != null ? 8 : 0), seed, hs0, hc0, wHs, wHc);
   }
 
   void _tick(double dt) {
@@ -132,8 +326,10 @@ class _FashionShopState extends State<FashionShop> {
       top = null;
       bottom = null;
       acc = null;
+      hs = cur!.hs;
+      hc = cur!.hc;
       tries = 0;
-      tab = 'top';
+      tab = cur!.wantHs != null ? 'hair' : 'top';
       Sound.sfx('door', vol: 0.5);
     } else if (cur != null) {
       cur!.pat -= dt;
@@ -179,7 +375,8 @@ class _FashionShopState extends State<FashionShop> {
     if (c == null || leaveT >= 0) return;
     tries++;
     final okTop = top == c.top, okBot = bottom == c.bottom, okAcc = acc == c.acc;
-    if (okTop && okBot && okAcc) {
+    final okHair = c.wantHs == null || (hs == c.wantHs && hc == c.wantHc);
+    if (okTop && okBot && okAcc && okHair) {
       final f = (c.pat / c.maxPat).clamp(0.0, 1.0);
       final pay = (c.price * (0.85 + 0.35 * f) * (tries == 1 ? 1.1 : 1.0)).round();
       earned += pay;
@@ -193,6 +390,7 @@ class _FashionShopState extends State<FashionShop> {
         if (!okTop) 'áo',
         if (!okBot) c.female ? 'váy' : 'quần',
         if (!okAcc) c.acc == null ? 'bỏ phụ kiện' : 'phụ kiện',
+        if (!okHair) 'kiểu tóc',
       ];
       c.pat -= 3;
       _speak('🤔 Chưa đúng ${miss.join(', ')}…');
@@ -247,6 +445,57 @@ class _FashionShopState extends State<FashionShop> {
     );
   }
 
+  Widget _wantHair(_Shopper c) {
+    final ok = hs == c.wantHs && hc == c.wantHc;
+    final col = hairColorOf(c.wantHc!);
+    return Container(
+      margin: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(color: ok ? const Color(0xFFDDF6EF) : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: ok ? Pal.mint : Pal.line, width: 1.5)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: col.$3, shape: BoxShape.circle, border: Border.all(color: Colors.black26))),
+        const SizedBox(width: 3),
+        Text('💇 Tóc ${hairStyleName(c.wantHs!)} ${col.$2.toLowerCase()}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Pal.text)),
+      ]),
+    );
+  }
+
+  List<Widget> _hairItems() {
+    Widget chip(Widget child, bool on, VoidCallback tap) => GestureDetector(
+          onTap: tap,
+          child: Container(
+            width: 66,
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            decoration: BoxDecoration(color: on ? const Color(0xFFDDF6EF) : Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: on ? Pal.mint : Pal.line, width: 2)),
+            child: child,
+          ),
+        );
+    return [
+      for (final h in hairStyles)
+        chip(
+            Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(h.$3, style: const TextStyle(fontSize: 24)),
+              Text(h.$2, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Pal.text)),
+            ]),
+            hs == h.$1, () {
+          if (cur == null) return;
+          Sound.sfx('tap');
+          setState(() => hs = h.$1);
+        }),
+      for (final h in hairColors)
+        chip(
+            Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(width: 26, height: 26, decoration: BoxDecoration(color: h.$3, shape: BoxShape.circle, border: Border.all(color: Colors.black26, width: 2))),
+              Text('Nhuộm ${h.$2.toLowerCase()}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Pal.text)),
+            ]),
+            hc == h.$1, () {
+          if (cur == null) return;
+          Sound.sfx('tap');
+          setState(() => hc = h.$1);
+        }),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = cur;
@@ -292,7 +541,12 @@ class _FashionShopState extends State<FashionShop> {
                     const SizedBox(height: 4),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
-                      child: Row(children: [_want(c.top), _want(c.bottom), if (c.acc != null) _want(c.acc!)]),
+                      child: Row(children: [
+                        if (c.wantHs != null) _wantHair(c),
+                        _want(c.top),
+                        _want(c.bottom),
+                        if (c.acc != null) _want(c.acc!),
+                      ]),
                     ),
                     const SizedBox(height: 4),
                     ClipRRect(
@@ -336,7 +590,7 @@ class _FashionShopState extends State<FashionShop> {
             color: Pal.surface,
             padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
             child: Row(children: [
-              for (final (id, label) in const [('top', '👕 Áo'), ('bottom', '👖 Quần / Váy'), ('acc', '🕶️ Phụ kiện')])
+              for (final (id, label) in const [('hair', '💇 Tóc'), ('top', '👕 Áo'), ('bottom', '👖 Quần/Váy'), ('acc', '🕶️ Phụ kiện')])
                 Expanded(
                   child: GestureDetector(
                     onTap: () => setState(() => tab = id),
@@ -354,6 +608,7 @@ class _FashionShopState extends State<FashionShop> {
             height: 84,
             color: Pal.surface,
             child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), children: [
+              if (tab == 'hair') ..._hairItems(),
               for (final g in items)
                 GestureDetector(
                   onTap: () => _wear(g),
@@ -385,6 +640,10 @@ class _FashionShopState extends State<FashionShop> {
                   top = null;
                   bottom = null;
                   acc = null;
+                  if (cur != null) {
+                    hs = cur!.hs;
+                    hc = cur!.hc;
+                  }
                 })),
               ),
               const SizedBox(width: 8),
@@ -462,7 +721,9 @@ class _ShopPainter extends CustomPainter {
       final u = size / 10;
       final lk = st._dressed(s);
       final mood = st.leaveT >= 0 ? (st.happyLeave ? 0 : 2) : ((s.pat / s.maxPat) < 0.35 ? 2 : ((s.pat / s.maxPat) < 0.6 ? 1 : 0));
-      drawPerson(c, p, size, lk, walking: st.leaveT >= 0, phase: t * 8, facingLeft: st.leaveT >= 0, mood: mood, armUp: st.leaveT >= 0 && st.happyLeave && sin(t * 9) > 0, bob: sin(t * 2) * 1.5);
+      final bob = sin(t * 2) * 1.5;
+      drawPerson(c, p, size, lk, walking: st.leaveT >= 0, phase: t * 8, facingLeft: st.leaveT >= 0, mood: mood, armUp: st.leaveT >= 0 && st.happyLeave && sin(t * 9) > 0, bob: bob);
+      drawPixelFace(c, p + Offset(0, -8.7 * u + bob), 6.2 * u, style: st.hs, hair: hairColorOf(st.hc).$3, skin: s.look.skin, seed: s.seed);
       // phụ kiện
       final a = st.acc;
       if (a != null) {
@@ -487,7 +748,9 @@ class _ShopPainter extends CustomPainter {
       // ảnh trong gương
       c.save();
       c.clipRRect(RRect.fromRectAndRadius(mirror, const Radius.circular(56)));
-      drawPerson(c, Offset(mirror.center.dx, mirror.bottom - 4), mirror.height * 0.85, lk, facingLeft: true, mood: mood);
+      final ms = mirror.height * 0.85, mu = ms / 10;
+      drawPerson(c, Offset(mirror.center.dx, mirror.bottom - 4), ms, lk, facingLeft: true, mood: mood);
+      drawPixelFace(c, Offset(mirror.center.dx, mirror.bottom - 4 - 8.7 * mu), 6.2 * mu, style: st.hs, hair: hairColorOf(st.hc).$3, skin: s.look.skin, seed: s.seed);
       c.restore();
       if (st.leaveT >= 0 && st.happyLeave) {
         for (var j = 0; j < 3; j++) {

@@ -83,6 +83,7 @@ const _lots = [
   _Lot('truck', 13.0, 18.4, 16.6, 21.2),
   _Lot('garden', 13.2, 7.7, 20.6, 9.8),
   _Lot('fashion', 1.2, 18.4, 5.6, 21.6),
+  _Lot('home', 1.6, 26.9, 6.6, 29.8),
 ];
 
 /// Một lô "nhà hàng riêng" trên bản đồ: của mình (bên trái) hoặc của người kia (bên phải)
@@ -104,7 +105,24 @@ class TownMap extends StatefulWidget {
   final void Function(String venueId) onTap;
   final List<SigSpot> sigs;
   final bool fashion; // đã mở cửa hàng thời trang
-  const TownMap({super.key, required this.owned, required this.current, required this.onTap, this.night = false, this.sigs = const [], this.fashion = false});
+  final String weather; // sun | rain | storm (thời tiết thật)
+  final String vehicle; // xe của mình: bike | moto | car | ''
+  final int homeItems; // số món nội thất trong nhà riêng
+  final String homeName;
+  final bool fireworks; // cuối tuần / Tết: pháo hoa trên sông
+  const TownMap(
+      {super.key,
+      required this.owned,
+      required this.current,
+      required this.onTap,
+      this.night = false,
+      this.sigs = const [],
+      this.fashion = false,
+      this.weather = 'sun',
+      this.vehicle = '',
+      this.homeItems = 0,
+      this.homeName = '',
+      this.fireworks = false});
   @override
   State<TownMap> createState() => _TownMapState();
 }
@@ -184,7 +202,18 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     return _iso((m.x0 + m.x1) / 2, (m.y0 + m.y1) / 2);
   }
 
+  /// Chỗ chạm thêm: người dân, chợ đêm
+  static const _npcSpots = [Offset(9.3, 7.4), Offset(12.6, 21.5), Offset(4.4, 9.5)];
+  Rect _spot(Offset g) {
+    final p = _iso(g.dx, g.dy);
+    return Rect.fromLTRB(p.dx - 16, p.dy - 44, p.dx + 16, p.dy + 4);
+  }
+
   String? _at(Offset p) {
+    for (var k = 0; k < _npcSpots.length; k++) {
+      if (_spot(_npcSpots[k]).contains(p)) return 'npc_$k';
+    }
+    if (_lotRect(const _Lot('nightmarket', 2.0, 21.9, 9.6, 22.95)).contains(p)) return 'nightmarket';
     // ưu tiên lô ở phía trước (gần người xem hơn)
     final sorted = [..._lots]..sort((a, b) => b.depth.compareTo(a.depth));
     for (final l in sorted) {
@@ -242,6 +271,8 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       widget.current,
       night,
       widget.fashion,
+      widget.homeItems,
+      widget.vehicle,
       for (final s in widget.sigs) '${s.venueId}${s.rank}${s.owner}',
     ].join('|');
     if (_static == null || key != _staticKey) {
@@ -253,6 +284,20 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     }
     c.drawPicture(_static!);
     _paintLive(c, t, night, phase);
+    // mưa thật ở Hoà Xuân → mưa rơi trên bản đồ
+    if (widget.weather != 'sun') {
+      final heavy = widget.weather == 'storm';
+      final p = Paint()
+        ..color = const Color(0x66C8E6FF)
+        ..strokeWidth = 1.2;
+      final n = heavy ? 220 : 120;
+      for (var k = 0; k < n; k++) {
+        final x = (k * 97.3 + t * 30) % kTownSize.width;
+        final y = (k * 53.7 + t * (heavy ? 520 : 380)) % kTownSize.height;
+        c.drawLine(Offset(x, y), Offset(x - 3, y + (heavy ? 14 : 10)), p);
+      }
+      if (heavy) c.drawRect(Offset.zero & kTownSize, Paint()..color = const Color(0x22101830));
+    }
   }
 
   // ======================= PHẦN TĨNH =======================
@@ -312,8 +357,8 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       const Offset(8.8, 19.2), const Offset(10.0, 21.4), const Offset(19.4, 18.8), const Offset(21.0, 21.2),
       const Offset(6.4, 21.5), const Offset(17.8, 21.5),
       // bờ nam sông Cẩm Lệ
-      const Offset(1.5, 27.4), const Offset(4.6, 28.6), const Offset(7.8, 27.6), const Offset(9.6, 29.2),
-      const Offset(13.4, 27.8), const Offset(16.2, 29.0), const Offset(19.0, 27.4), const Offset(21.2, 28.8), const Offset(3.0, 29.6), const Offset(18.0, 29.7),
+      const Offset(7.8, 27.6), const Offset(9.6, 29.2),
+      const Offset(13.4, 27.8), const Offset(16.2, 29.0), const Offset(19.0, 27.4), const Offset(21.2, 28.8), const Offset(18.0, 29.7),
     ];
     for (var i = 0; i < treeSpots.length; i++) {
       final p = treeSpots[i];
@@ -325,7 +370,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     for (final b in const [Offset(3.0, 7.9), Offset(8.4, 9.4)]) {
       draws.add((b.dx + b.dy, () => _bench(c, b.dx, b.dy)));
     }
-    for (final f in const [Offset(2.2, 9.4), Offset(8.0, 7.7), Offset(4.6, 7.6), Offset(7.6, 20.2), Offset(19.6, 20.2), Offset(6.0, 28.2), Offset(15.0, 28.4)]) {
+    for (final f in const [Offset(2.2, 9.4), Offset(8.0, 7.7), Offset(4.6, 7.6), Offset(7.6, 20.2), Offset(19.6, 20.2), Offset(15.0, 28.4)]) {
       draws.add((f.dx + f.dy + 0.5, () => _flowerBed(c, f.dx, f.dy)));
     }
     // đèn đường dọc các con đường
@@ -568,6 +613,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     final id = _hitIdOf(l);
     _hit[id] = _lotRect(l);
     if (l.key == 'fashion') return _fashionLot(c, l, night);
+    if (l.key == 'home') return _homeLot(c, l, night);
     if (vid == null) return _emptyLot(c, l, l.key.startsWith('sig_mine'), _ownerCol(l.key));
     final owned = l.key.startsWith('sig_') || widget.owned.contains(vid);
     if (vid == 'truck') return _truckLot(c, l, owned);
@@ -1051,6 +1097,30 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     tp.paint(c, p - Offset(tp.width / 2, tp.height * 0.9));
   }
 
+  /// Nhà riêng của hai vợ chồng: nhà mái đỏ, hàng rào trắng, xe đậu trước cửa
+  void _homeLot(Canvas c, _Lot l, bool night) {
+    final x0 = l.x0 + 0.8, x1 = l.x1 - 0.9, y0 = l.y0 + 0.5, y1 = l.y1 - 0.9;
+    final cx = (x0 + x1) / 2;
+    c.drawPath(_area(l.x0 + 0.1, l.y0 + 0.1, l.x1 - 0.1, l.y1 - 0.1), Paint()..color = const Color(0xFF9CD67F));
+    c.drawPath(_area(cx - 0.3, y1, cx + 0.3, l.y1 - 0.1), Paint()..color = const Color(0xFFE0D6C2));
+    const h = 26.0;
+    _walls(c, x0, y0, x1, y1, h, const Color(0xFFFFF3E0));
+    _windows(c, x0, y0, x1, y1, 8, 19, const Color(0xFF8D6E63), night);
+    _door(c, x0, x1, y1, h, const Color(0xFF8D5A2B), const Color(0xFFE57373), '🏡');
+    _gable(c, x0, y0, x1, y1, h, 22, const Color(0xFFD84315), const Color(0xFFFFE0B2));
+    // hàng rào trắng
+    for (var x = l.x0 + 0.2; x <= l.x1 - 0.2; x += 0.4) {
+      final p = _iso(x, l.y1 - 0.25);
+      c.drawLine(p, p - const Offset(0, 8), Paint()
+        ..color = Colors.white
+        ..strokeWidth = 2);
+    }
+    c.drawLine(_iso(l.x0 + 0.2, l.y1 - 0.25, 7), _iso(l.x1 - 0.2, l.y1 - 0.25, 7), Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1.6);
+    _roofTop[l.key] = _iso(cx, (y0 + y1) / 2, h + 30);
+  }
+
   /// Cửa hàng thời trang nam nữ: mặt kính, ma-nơ-canh, mái hiên hồng-trắng
   void _fashionLot(Canvas c, _Lot l, bool night) {
     final owned = widget.fashion;
@@ -1186,6 +1256,80 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
         ..strokeWidth = 1.5);
       c.drawPath(_pg([p - const Offset(0, 22), p + Offset(10 * d, -6), p - const Offset(0, 6)]), Paint()..color = k == 0 ? const Color(0xFFFFF3E0) : const Color(0xFFFFCDD2));
     }
+    // cầu Hoà Xuân lên đèn đổi màu ban đêm
+    if (night) {
+      final x0 = _r2 - _rw - 0.3, x1 = _r2 + _rw + 0.3, y0 = _cl0 - 0.3, y1 = _cl1 + 0.3;
+      for (var k = 0; k < 2; k++) {
+        final x = k == 0 ? x0 : x1;
+        final a = _iso(x, y0, 7), b = _iso(x, y1, 7);
+        final ctl = _iso(x, (y0 + y1) / 2, 7) - const Offset(0, 120);
+        final arch = Path()
+          ..moveTo(a.dx, a.dy)
+          ..quadraticBezierTo(ctl.dx, ctl.dy, b.dx, b.dy);
+        final col = HSVColor.fromAHSV(1, (t * 40 + k * 60) % 360, 0.7, 1).toColor();
+        c.drawPath(arch, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 9
+          ..color = col.withAlpha(70));
+        c.drawPath(arch, Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..color = col);
+      }
+      // chợ đêm ven sông: sạp hàng + đèn lồng
+      const stall = [Color(0xFFE53935), Color(0xFFFFB300), Color(0xFF43A047), Color(0xFF1E88E5)];
+      for (var k = 0; k < 4; k++) {
+        final gx = 2.6 + k * 1.8;
+        _box(c, gx, 22.0, gx + 1.0, 22.6, 8, const Color(0xFF8D6E63), const Color(0xFF5D4037), const Color(0xFF6D4C41));
+        c.drawPath(_pg([_iso(gx - 0.1, 22.0, 18), _iso(gx + 1.1, 22.0, 18), _iso(gx + 1.1, 22.7, 13), _iso(gx - 0.1, 22.7, 13)]), Paint()..color = stall[k]);
+        final lp = _iso(gx + 0.5, 22.7, 12);
+        c.drawCircle(lp, 3 + 0.6 * sin(t * 4 + k), Paint()..color = const Color(0xFFFFE082));
+        c.drawCircle(lp, 7, Paint()..color = const Color(0x33FFE082));
+      }
+      _label(c, _iso(5.5, 22.4, 24), '🎪 Chợ đêm ven sông', const Color(0xFF3949AB), Colors.white, small: true);
+    }
+    // pháo hoa trên sông Cẩm Lệ
+    if (night && widget.fireworks) {
+      const fc = [Color(0xFFFF5252), Color(0xFFFFD740), Color(0xFF69F0AE), Color(0xFF40C4FF), Color(0xFFE040FB)];
+      for (var k = 0; k < 3; k++) {
+        final ph = (t * 0.45 + k * 0.33) % 1.0;
+        final n = (t * 0.45 + k * 0.33).floor();
+        final ctr = _iso(4.0 + k * 6.5 + (n % 3), (_cl0 + _cl1) / 2) - Offset(0, 120 + (n % 4) * 18.0);
+        if (ph < 0.25) {
+          c.drawCircle(Offset.lerp(ctr + const Offset(0, 110), ctr, ph / 0.25)!, 2, Paint()..color = const Color(0xFFFFF8E1));
+          continue;
+        }
+        final r = (ph - 0.25) / 0.75 * 46;
+        final col = fc[(n + k) % fc.length].withAlpha((255 * (1 - (ph - 0.25) / 0.75)).round());
+        for (var j = 0; j < 14; j++) {
+          final a = j * pi / 7;
+          c.drawCircle(ctr + Offset(cos(a) * r, sin(a) * r + r * r * 0.004), 2.4, Paint()..color = col);
+        }
+      }
+    }
+    // người dân quen trên phố
+    const npcEmo = ['👵', '🛵', '👩‍🏫'];
+    for (var k = 0; k < _npcSpots.length; k++) {
+      final g = _npcSpots[k];
+      final p = _iso(g.dx, g.dy) + Offset(0, -sin(t * 2 + k).abs() * 2);
+      drawPerson(c, p, 24, Look.seed(900 + k * 13), phase: t * 4, armUp: sin(t * 1.5 + k) > 0.8);
+      final tp = TextPainter(text: TextSpan(text: npcEmo[k], style: const TextStyle(fontSize: 13)), textDirection: TextDirection.ltr)..layout();
+      final b = p - const Offset(0, 40);
+      c.drawCircle(b, 10, Paint()..color = Colors.white);
+      tp.paint(c, b - Offset(tp.width / 2, tp.height / 2));
+    }
+    // xe của mình chạy trên đường Hoà Xuân
+    if (widget.vehicle.isNotEmpty) {
+      final emo = {'bike': '🚲', 'moto': '🛵', 'car': '🚗'}[widget.vehicle] ?? '🛵';
+      final gx = _n + 1 - ((t * 0.7 + 4) % (_n + 2));
+      final p = _iso(gx, _r1 + 0.3);
+      final tp = TextPainter(text: TextSpan(text: emo, style: const TextStyle(fontSize: 20)), textDirection: TextDirection.ltr)..layout();
+      tp.paint(c, p - Offset(tp.width / 2, tp.height));
+      if (widget.homeName.isNotEmpty) _label(c, p - Offset(0, tp.height + 8), widget.homeName.split(' ').first, Colors.white, const Color(0xFF221B3F), small: true);
+      final hp = _iso(4.3, 29.3);
+      final tp2 = TextPainter(text: TextSpan(text: emo, style: const TextStyle(fontSize: 18)), textDirection: TextDirection.ltr)..layout();
+      tp2.paint(c, hp - Offset(tp2.width / 2, tp2.height));
+    }
     // xe chạy
     const carCols = [Color(0xFFE53935), Color(0xFF1E88E5), Color(0xFFFDD835), Color(0xFF8E24AA)];
     for (var k = 0; k < 2; k++) {
@@ -1205,12 +1349,22 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       final yy = onR1 ? _r1 + (k == 1 ? -_rw - 0.35 : _rw + 0.35) : _r3 + (k == 4 ? -_rw - 0.35 : _rw + 0.35);
       final p = _iso(g, yy);
       drawPerson(c, p, 20, Look.seed(k * 31 + 7), walking: true, phase: t * 10 + k, facingLeft: !fwd);
+      if (widget.weather != 'sun') {
+        final tp = TextPainter(text: const TextSpan(text: '☂️', style: TextStyle(fontSize: 16)), textDirection: TextDirection.ltr)..layout();
+        tp.paint(c, p - Offset(tp.width / 2, 34));
+      }
     }
     // khói bếp + tên quán + ghim quán đang chọn
     for (final l in _lots) {
       final vid = _venueOf(l);
       if (l.key == 'garden') {
         _label(c, _iso((l.x0 + l.x1) / 2, l.y0, 14) - const Offset(0, 6), '🌻 Vườn chung', Colors.white, const Color(0xFF2E7D32));
+        continue;
+      }
+      if (l.key == 'home') {
+        final lp = (_roofTop[l.key] ?? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 60)) - const Offset(0, 4);
+        _label(c, lp, '🏡 ${widget.homeName.isEmpty ? 'Nhà mình' : widget.homeName}', Colors.white, const Color(0xFF221B3F));
+        _label(c, lp + const Offset(0, 20), '🛋️ ${widget.homeItems} món nội thất', const Color(0xFFFFF3CD), const Color(0xFF5A3B00), small: true);
         continue;
       }
       if (l.key == 'fashion') {

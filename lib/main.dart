@@ -24,6 +24,8 @@ import 'auto_biz.dart';
 import 'live_room.dart';
 import 'fashion.dart';
 
+part 'extras.dart';
+
 bool get onlineConfigured => !kSupabaseUrl.contains('YOUR_');
 
 Future<void> main() async {
@@ -82,6 +84,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   String sig = ''; // loại nhà hàng riêng đã mở ('' = chưa)
   // Mỗi người mở được cả 3 nhà hàng riêng; [sig] là quán đang xem/chơi
   bool fashion = false; // đã mở cửa hàng thời trang nam nữ
+  Map<String, dynamic> ex = {}; // dữ liệu tính năng thêm (vườn, nhà, xe, nhiệm vụ…)
   Map<String, int> sigRanks = {}; // quán riêng đã mở → hạng 1..5 sao
   Map<String, Biz> bizs = {}; // mỗi quán riêng một bộ nhân viên + két tiền
   final Biz _noBiz = Biz();
@@ -181,7 +184,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// Số phần nông sản từ vườn chưa lấy (mỗi lần thu hoạch = 6 phần)
   int get farmAvail {
     final total = Garden.instance.state.harvests.values.fold<int>(0, (a, b) => a + b);
-    return max(0, total * 6 - biz.farmClaimed * 6);
+    final claimed = bizs.values.fold<int>(0, (a, b) => a + b.farmClaimed);
+    return max(0, total * 6 - claimed * 6 - soldPortions);
   }
   int tickN = 0;
   int hostDecor = 0; // cấp trang trí của chủ phòng (để khách thấy đúng cây cảnh)
@@ -317,6 +321,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    speciesLocked = (id) => rareSpecies.contains(id) && !rareUnlocked(id);
     recipes.addAll(venueById('cafe').recipes.where((r) => r.unlock == 0).map((r) => r.id));
     WidgetsBinding.instance.addObserver(this);
     Garden.instance.addListener(_onGarden);
@@ -432,6 +437,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     npcVisits = {};
     sig = '';
     fashion = false;
+    ex = {};
     sigRanks = {};
     bizs = {};
     ads = {};
@@ -528,6 +534,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       }
       ads = Map<String, int>.from(m['ads'] ?? {});
       fashion = m['fashion'] == true;
+      ex = m['ex'] is Map ? Map<String, dynamic>.from(m['ex'] as Map) : {};
       cheerDay = m['cheer'] ?? 0;
     }
   }
@@ -553,6 +560,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         'sigRank': sigRank,
         'sigRanks': sigRanks,
         'fashion': fashion,
+        'ex': ex,
         'bizs': {for (final e in bizs.entries) if (e.key.isNotEmpty && sigRanks.containsKey(e.key)) e.key: e.value.toJson()},
         'ads': ads,
         'cheer': cheerDay,
@@ -1043,6 +1051,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     starSum = 0;
     starsLog = [];
     timeLeft = 120 - 25 * ease; // ngày đầu dài 120 giây
+    if (!race) commuteBonus(); // có xe thì tới quán sớm hơn
     goalHit = false;
     goalBurstAt = null;
     spawnT = 1;
@@ -1075,6 +1084,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     endGoal = goal;
     if (earned >= goal) money += 50;
     exitRaceCfg(); // thi đấu xong: về lại quán của mình
+    qAdd('served', served);
+    qAdd('earned', earned);
     day++;
     // thú cưng đói dần qua mỗi ngày, nhớ cho ăn và vuốt ve
     for (final id in pets) {
@@ -1978,7 +1989,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         content = onlineTab();
         break;
       case 'garden':
-        content = GardenTab(
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) autoWater();
+        });
+        content = Column(children: [gardenExtrasBar(), Expanded(child: GardenTab(
           money: money,
           pay: (c) {
             final ok = pay(c);
@@ -1993,7 +2007,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             save();
           },
           toast: snack,
-        );
+        ))]);
         break;
       default:
         content = mapTab();
@@ -2031,7 +2045,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         bottom: mapPanel ? 200 : 0,
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
-          child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap, sigs: sigSpots(), fashion: fashion),
+          child: TownMap(owned: owned, current: venueId, night: style == 'night' || realDayPhase() == 2, onTap: onVenueTap,
+              sigs: sigSpots(),
+              fashion: fashion,
+              weather: Crowd.weather == null ? 'sun' : (Crowd.weather!.storm ? 'storm' : (Crowd.weather!.rain ? 'rain' : 'sun')),
+              vehicle: vehicle,
+              homeItems: homeItems.length,
+              homeName: owner.isEmpty ? '' : '$owner & $partnerName',
+              fireworks: DateTime.now().weekday >= 6 || isTet()),
         ),
       ),
       Positioned(
@@ -2083,6 +2104,23 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               startDay();
             }),
           ]),
+        ),
+      ),
+      Positioned(
+        left: 14,
+        bottom: mapPanel ? 214 : 14,
+        child: Material(
+          color: questsDone ? const Color(0xFFDDF6EF) : Colors.white,
+          elevation: 4,
+          shape: const StadiumBorder(),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: showQuests,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(unreadPresents.isNotEmpty ? '📜 Nhiệm vụ • 🎁${unreadPresents.length}' : '📜 Nhiệm vụ', style: const TextStyle(fontWeight: FontWeight.w800, color: Pal.text, fontSize: 12.5)),
+            ),
+          ),
         ),
       ),
       Positioned(
@@ -2615,6 +2653,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         staffLook: castLook(me, 'waiter'),
         level: day,
         onDone: (earned, served, lost) {
+          if (served > 0) qAdd('fashion', 1);
           setState(() => money += earned);
           save();
         },
@@ -2879,6 +2918,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return setState(() => hubTab = 'garden');
     }
     if (id == 'fashion') return _openFashion();
+    if (id == 'home') return showHome();
+    if (id == 'nightmarket') return showNightMarket();
+    if (id.startsWith('npc_')) return showNpc(int.tryParse(id.substring(4)) ?? 0);
     if (id == 'sig_mine') return openSigPicker();
     if (id.startsWith('buy:')) return _buySig(id.substring(4));
     if (id == 'sig_partner') return showPartnerSig();

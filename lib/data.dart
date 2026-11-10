@@ -215,7 +215,27 @@ const species = [
   Species('squid', 'Mực ống', '🦑', 'fish', '🦑', 110, 2, 170),
   Species('octo', 'Bạch tuộc', '🐙', 'fish', '🐙', 130, 2, 200),
   Species('oyster', 'Hàu sữa', '🦪', 'fish', '🦪', 70, 1, 110),
+  // loài hiếm: mở khoá bằng bộ sưu tập
+  Species('goldmelon', 'Dưa hấu vàng', '🍈', 'plant', '🌱', 150, 2, 260),
+  Species('dongtao', 'Gà Đông Tảo', '🐓', 'animal', '🐥', 300, 3, 480),
+  Species('koi', 'Cá Koi', '🎏', 'fish', '🐟', 280, 3, 450),
 ];
+
+const rareSpecies = {'goldmelon', 'dongtao', 'koi'};
+
+/// Giao diện vườn hỏi: loài này còn khoá không (main gán theo bộ sưu tập)
+bool Function(String id) speciesLocked = (id) => rareSpecies.contains(id);
+
+/// Đang dịp Tết Nguyên Đán (theo lịch dương gần đúng các năm tới)
+bool isTet([DateTime? d]) {
+  final n = d ?? DateTime.now();
+  const tet = {2026: [2, 17], 2027: [2, 6], 2028: [1, 26], 2029: [2, 13], 2030: [2, 3]};
+  final t = tet[n.year];
+  if (t == null) return false;
+  final day = DateTime(n.year, t[0], t[1]);
+  final diff = n.difference(day).inDays;
+  return diff >= -14 && diff <= 7;
+}
 
 Species speciesById(String id) => species.firstWhere((s) => s.id == id, orElse: () => species.first);
 
@@ -244,6 +264,9 @@ const gardenIngs = [
   Ing('p_squid', '🦑', 'Mực', 2),
   Ing('p_octo', '🐙', 'Bạch tuộc', 2),
   Ing('p_oyster', '🦪', 'Hàu', 1),
+  Ing('p_goldmelon', '🍈', 'Dưa vàng', 2),
+  Ing('p_dongtao', '🍗', 'Gà Đông Tảo', 3),
+  Ing('p_koi', '🎏', 'Cá Koi', 2),
   Ing('ice', '🧊', 'Đá'),
   Ing('yog', '🥛', 'Sữa chua'),
   Ing('rice', '🍚', 'Cơm'),
@@ -277,6 +300,9 @@ const gardenRecipes = [
   Recipe('r_squid', 'Mực chiên giòn', '🦑', ['p_squid', 'garlic'], 6, 150, 0),
   Recipe('r_octo', 'Bạch tuộc nướng mật ong', '🐙', ['p_octo', 'honey'], 7, 180, 0),
   Recipe('r_oyster', 'Hàu nướng phô mai', '🦪', ['p_oyster', 'cheese'], 5, 100, 0),
+  Recipe('r_goldmelon', 'Kem dưa vàng', '🍈', ['p_goldmelon', 'yog', 'ice'], 5, 160, 0),
+  Recipe('r_dongtao', 'Gà Đông Tảo hấp lá chanh', '🐓', ['p_dongtao', 'garlic'], 10, 320, 0),
+  Recipe('r_koi', 'Gỏi cá Koi hoàng gia', '🎏', ['p_koi', 'garlic', 'honey'], 8, 300, 0),
 ];
 
 /// Sự cố trong vườn: mỗi loại cần một cách xử lý riêng

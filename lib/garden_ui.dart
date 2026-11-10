@@ -322,6 +322,11 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
                 child: Transform.rotate(angle: rot, child: Text(e, style: TextStyle(fontSize: size))),
               );
           return Stack(children: [
+            if (isTet()) ...[
+              at('🌸', 0.1 + 0.05 * sin(t * 0.6), 0.12 + ((t * 0.05) % 0.5), 16, rot: t),
+              at('🧧', 0.85, 0.12 + 0.02 * sin(t * 2), 18),
+              at('🏮', 0.65, 0.06 + 0.015 * sin(t * 1.5), 18),
+            ],
             if (!night) ...[
               at('🦋', 0.3 + 0.18 * sin(t * 0.5), 0.2 + 0.08 * sin(t * 1.7), 16, rot: sin(t * 9) * 0.3),
               at('🦋', 0.45 + 0.15 * cos(t * 0.4 + 1), 0.45 + 0.07 * sin(t * 2.1), 14, rot: sin(t * 8) * 0.3),
@@ -454,7 +459,7 @@ class _GardenTabState extends State<GardenTab> with SingleTickerProviderStateMix
   // ------------------------------------------------------------------ gieo trồng
   void _plantSheet(GSlot slot) {
     final area = slot.area;
-    final list = species.where((s) => areaOf(s.kind) == area).toList();
+    final list = species.where((s) => areaOf(s.kind) == area && !speciesLocked(s.id)).toList();
     final title = area == 'field' ? 'Gieo hạt giống' : (area == 'pen' ? 'Mua con giống' : 'Thả giống xuống hồ');
     showGameSheet(context, title: title, emoji: area == 'field' ? '🌱' : (area == 'pen' ? '🐣' : '🐠'), builder: (ctx, setS) {
       return ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
