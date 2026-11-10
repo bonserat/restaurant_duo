@@ -84,6 +84,7 @@ const _lots = [
   _Lot('garden', 13.2, 7.7, 20.6, 9.8),
   _Lot('fashion', 1.2, 18.4, 5.6, 21.6),
   _Lot('home', 1.6, 26.9, 6.6, 29.8),
+  _Lot('beach', 13.0, 26.9, 21.4, 29.8),
 ];
 
 /// Một lô "nhà hàng riêng" trên bản đồ: của mình (bên trái) hoặc của người kia (bên phải)
@@ -358,7 +359,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       const Offset(6.4, 21.5), const Offset(17.8, 21.5),
       // bờ nam sông Cẩm Lệ
       const Offset(7.8, 27.6), const Offset(9.6, 29.2),
-      const Offset(13.4, 27.8), const Offset(16.2, 29.0), const Offset(19.0, 27.4), const Offset(21.2, 28.8), const Offset(18.0, 29.7),
+      
     ];
     for (var i = 0; i < treeSpots.length; i++) {
       final p = treeSpots[i];
@@ -370,7 +371,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     for (final b in const [Offset(3.0, 7.9), Offset(8.4, 9.4)]) {
       draws.add((b.dx + b.dy, () => _bench(c, b.dx, b.dy)));
     }
-    for (final f in const [Offset(2.2, 9.4), Offset(8.0, 7.7), Offset(4.6, 7.6), Offset(7.6, 20.2), Offset(19.6, 20.2), Offset(15.0, 28.4)]) {
+    for (final f in const [Offset(2.2, 9.4), Offset(8.0, 7.7), Offset(4.6, 7.6), Offset(7.6, 20.2), Offset(19.6, 20.2)]) {
       draws.add((f.dx + f.dy + 0.5, () => _flowerBed(c, f.dx, f.dy)));
     }
     // đèn đường dọc các con đường
@@ -614,6 +615,7 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     _hit[id] = _lotRect(l);
     if (l.key == 'fashion') return _fashionLot(c, l, night);
     if (l.key == 'home') return _homeLot(c, l, night);
+    if (l.key == 'beach') return _beachLot(c, l);
     if (vid == null) return _emptyLot(c, l, l.key.startsWith('sig_mine'), _ownerCol(l.key));
     final owned = l.key.startsWith('sig_') || widget.owned.contains(vid);
     if (vid == 'truck') return _truckLot(c, l, owned);
@@ -1097,6 +1099,35 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
     tp.paint(c, p - Offset(tp.width / 2, tp.height * 0.9));
   }
 
+  /// Lối ra bãi biển: bãi cát, ô dù, lâu đài cát nhỏ, biển xanh
+  void _beachLot(Canvas c, _Lot l) {
+    final mid = (l.y0 + l.y1) / 2;
+    c.drawPath(_area(l.x0, l.y0, l.x1, mid + 0.4), Paint()..color = const Color(0xFFF1DBA9));
+    c.drawPath(_area(l.x0, mid + 0.4, l.x1, l.y1), Paint()..color = const Color(0xFF29B6F6));
+    c.drawPath(_area(l.x0, mid + 0.4, l.x1, mid + 0.55), Paint()..color = Colors.white);
+    // lâu đài cát nhỏ
+    final cx = l.x0 + 2.2, cy = l.y0 + 0.8;
+    _box(c, cx, cy, cx + 1.6, cy + 0.9, 8, const Color(0xFFEBD3A1), const Color(0xFFC9A26B), const Color(0xFFD9B98A));
+    for (final (dx, dy) in const [(0.0, 0.0), (1.2, 0.0), (0.0, 0.5), (1.2, 0.5)]) {
+      _box(c, cx + dx, cy + dy, cx + dx + 0.4, cy + dy + 0.4, 18, const Color(0xFFF1DBA9), const Color(0xFFC9A26B), const Color(0xFFD9B98A));
+    }
+    final pole = _iso(cx + 0.2, cy + 0.2, 18);
+    c.drawLine(pole, pole - const Offset(0, 14), Paint()
+      ..color = const Color(0xFF6D4C41)
+      ..strokeWidth = 1.5);
+    c.drawPath(_pg([pole - const Offset(0, 14), pole - const Offset(-9, 12), pole - const Offset(0, 9)]), Paint()..color = const Color(0xFFE53935));
+    // ô dù + khăn tắm
+    for (final (gx, col) in [(l.x0 + 5.0, const Color(0xFFFF7043)), (l.x0 + 6.8, const Color(0xFF26C6DA))]) {
+      final p = _iso(gx, l.y0 + 1.0);
+      c.drawLine(p, p - const Offset(0, 22), Paint()
+        ..color = const Color(0xFF8D6E63)
+        ..strokeWidth = 1.5);
+      c.drawPath(Path()..addArc(Rect.fromCenter(center: p - const Offset(0, 22), width: 34, height: 18), pi, pi), Paint()..color = col);
+      c.drawPath(_area(gx - 0.2, l.y0 + 1.3, gx + 0.5, l.y0 + 1.7), Paint()..color = col.withAlpha(180));
+    }
+    _roofTop[l.key] = _iso((l.x0 + l.x1) / 2, l.y0 + 0.6, 40);
+  }
+
   /// Nhà riêng của hai vợ chồng: nhà mái đỏ, hàng rào trắng, xe đậu trước cửa
   void _homeLot(Canvas c, _Lot l, bool night) {
     final x0 = l.x0 + 0.8, x1 = l.x1 - 0.9, y0 = l.y0 + 0.5, y1 = l.y1 - 0.9;
@@ -1359,6 +1390,11 @@ class _TownMapState extends State<TownMap> with SingleTickerProviderStateMixin {
       final vid = _venueOf(l);
       if (l.key == 'garden') {
         _label(c, _iso((l.x0 + l.x1) / 2, l.y0, 14) - const Offset(0, 6), '🌻 Vườn chung', Colors.white, const Color(0xFF2E7D32));
+        continue;
+      }
+      if (l.key == 'beach') {
+        final lp = (_roofTop[l.key] ?? _iso((l.x0 + l.x1) / 2, (l.y0 + l.y1) / 2, 40));
+        _label(c, lp, '🏖️ Ra bãi biển • xây lâu đài cát', const Color(0xFF0277BD), Colors.white);
         continue;
       }
       if (l.key == 'home') {

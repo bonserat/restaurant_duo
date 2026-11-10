@@ -23,6 +23,7 @@ import 'crowd.dart';
 import 'auto_biz.dart';
 import 'live_room.dart';
 import 'fashion.dart';
+import 'beach.dart';
 
 part 'extras.dart';
 
@@ -2919,6 +2920,24 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
     if (id == 'fashion') return _openFashion();
     if (id == 'home') return showHome();
+    if (id == 'beach') {
+      Sound.sfx('door', vol: 0.6);
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BeachGame(
+          saved: ex['beach'] is Map ? Map<String, dynamic>.from(ex['beach'] as Map) : null,
+          onSave: (m) {
+            ex['beach'] = m;
+            save();
+          },
+          onEarn: (m) {
+            money += m;
+            save();
+            if (mounted) setState(() {});
+          },
+        ),
+      ));
+      return;
+    }
     if (id == 'nightmarket') return showNightMarket();
     if (id.startsWith('npc_')) return showNpc(int.tryParse(id.substring(4)) ?? 0);
     if (id == 'sig_mine') return openSigPicker();
